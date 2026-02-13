@@ -270,7 +270,7 @@ void TopologyPage::repopulateUnused() {
         universe.insert(id);
       else {
         // Fallback to text parsing if needed
-        QRegExp rx("(Edge|Face) (\\d+)");
+        QRegExp rx("(Edge|Face|Node) (\\d+)"); // Updated regex to include Node
         if (rx.indexIn(list->item(i)->text()) >= 0) {
           universe.insert(rx.cap(2).toInt());
         }
@@ -341,25 +341,24 @@ void TopologyPage::onFaceSelectionChanged(QListWidgetItem *current,
   Q_UNUSED(current);
   Q_UNUSED(previous);
 
-  // Clear previous manual highlights - although we are moving to native
-  // selection we still need to tell the viewer which items are selected based
-  // on the list but wait, if we are doing two-way sync, it's better to just
-  // emit what's selected. Actually, let's just use the viewer's selection as
-  // source of truth. When user clicks list, we update viewer. When user clicks
-  // viewer, we update list.
-
   for (int i = 0; i < m_faceList->count(); ++i) {
     QListWidgetItem *item = m_faceList->item(i);
-    QRegExp rx("Face (\\d+):");
-    if (rx.indexIn(item->text()) >= 0) {
-      int id = rx.cap(1).toInt();
+    // Prefer ID from UserRole if available
+    if (item->data(Qt::UserRole).isValid()) {
+      int id = item->data(Qt::UserRole).toInt();
       emit faceHighlightRequested(id, item->isSelected());
+    } else {
+      QRegExp rx("Face (\\d+):");
+      if (rx.indexIn(item->text()) >= 0) {
+        int id = rx.cap(1).toInt();
+        emit faceHighlightRequested(id, item->isSelected());
+      }
     }
   }
 }
 
 // ============================================================================
-// Topology Entity List Slots (unchanged logic, reformatted)
+// Topology Entity List Slots
 // ============================================================================
 
 void TopologyPage::onNodeCreated(int id, double u, double v, int faceId) {
@@ -370,14 +369,26 @@ void TopologyPage::onNodeCreated(int id, double u, double v, int faceId) {
 }
 
 void TopologyPage::addNodeToList(int id) {
-  m_nodeList->addItem(QString("Node %1").arg(id));
-  initializeDefaultGroups(); // Ensure groups exist and are repopulated
+  // Store ID in UserRole for robust selection
+  QListWidgetItem *item = new QListWidgetItem(QString("Node %1").arg(id));
+  item->setData(Qt::UserRole, id);
+  m_nodeList->addItem(item);
+  initializeDefaultGroups();
 }
 
 void TopologyPage::onNodeMoved(int id, const gp_Pnt &p) {
   for (int i = 0; i < m_nodeList->count(); ++i) {
     QListWidgetItem *item = m_nodeList->item(i);
-    if (item->text().startsWith(QString("Node %1").arg(id))) {
+    // Check ID matches (robust check)
+    bool match = false;
+    if (item->data(Qt::UserRole).isValid()) {
+      if (item->data(Qt::UserRole).toInt() == id)
+        match = true;
+    } else if (item->text().startsWith(QString("Node %1").arg(id))) {
+      match = true;
+    }
+
+    if (match) {
       item->setText(QString("Node %1: (%2, %3, %4)")
                         .arg(id)
                         .arg(p.X(), 0, 'f', 2)
@@ -389,23 +400,22 @@ void TopologyPage::onNodeMoved(int id, const gp_Pnt &p) {
 }
 
 void TopologyPage::updateNodePosition(int id, double x, double y, double z) {
-  for (int i = 0; i < m_nodeList->count(); ++i) {
-    QListWidgetItem *item = m_nodeList->item(i);
-    if (item->text().startsWith(QString("Node %1").arg(id))) {
-      item->setText(QString("Node %1: (%2, %3, %4)")
-                        .arg(id)
-                        .arg(x, 0, 'f', 2)
-                        .arg(y, 0, 'f', 2)
-                        .arg(z, 0, 'f', 2));
-      break;
-    }
-  }
+  // Wrapper for consistency
+  onNodeMoved(id, gp_Pnt(x, y, z));
 }
 
 void TopologyPage::onNodeDeleted(int id) {
   for (int i = 0; i < m_nodeList->count(); ++i) {
     QListWidgetItem *item = m_nodeList->item(i);
-    if (item->text().startsWith(QString("Node %1").arg(id))) {
+    bool match = false;
+    if (item->data(Qt::UserRole).isValid()) {
+      if (item->data(Qt::UserRole).toInt() == id)
+        match = true;
+    } else if (item->text().startsWith(QString("Node %1").arg(id))) {
+      match = true;
+    }
+
+    if (match) {
       delete m_nodeList->takeItem(i);
       break;
     }
@@ -427,13 +437,7 @@ void TopologyPage::onEdgeCreated(int n1, int n2, int id) {
 }
 
 void TopologyPage::onNodesMerged(int keepId, int removeId) {
-  for (int i = 0; i < m_nodeList->count(); ++i) {
-    QListWidgetItem *item = m_nodeList->item(i);
-    if (item->text().startsWith(QString("Node %1").arg(removeId))) {
-      delete m_nodeList->takeItem(i);
-      break;
-    }
-  }
+  onNodeDeleted(removeId);
   repopulateUnused();
 }
 
@@ -460,7 +464,7 @@ void TopologyPage::onFaceCreated(int id, const QList<int> &nodeIds) {
 void TopologyPage::onNodeSelected(int id) {
   for (int i = 0; i < m_nodeList->count(); ++i) {
     QListWidgetItem *item = m_nodeList->item(i);
-    if (item->text().startsWith(QString("Node %1").arg(id))) {
+    if (item->data(Qt::UserRole).toInt() == id) {
       m_nodeList->setCurrentItem(item);
       break;
     }
@@ -470,15 +474,16 @@ void TopologyPage::onNodeSelected(int id) {
 void TopologyPage::onEdgeDeleted(int n1, int n2) {
   if (!m_edgeList)
     return;
-  QString s1 = QString("Edge [%1-%2]").arg(n1).arg(n2);
-  QString s2 = QString("Edge [%1-%2]").arg(n2).arg(n1);
-  // Also try old format for backwards compat
-  QString s3 = QString("Edge: %1 - %2").arg(n1).arg(n2);
-  QString s4 = QString("Edge: %1 - %2").arg(n2).arg(n1);
+
+  // We don't easily know the ID here unless we search by nodes
+  // Loop through items and check text pattern "Node n1 - Node n2"
+  QString pattern1 = QString("Node %1 - Node %2").arg(n1).arg(n2);
+  QString pattern2 = QString("Node %2 - Node %1").arg(n1).arg(n2);
+
   for (int i = 0; i < m_edgeList->count(); ++i) {
     QListWidgetItem *item = m_edgeList->item(i);
     QString t = item->text();
-    if (t == s1 || t == s2 || t == s3 || t == s4) {
+    if (t.contains(pattern1) || t.contains(pattern2)) {
       delete m_edgeList->takeItem(i);
       repopulateUnused();
       break;
@@ -491,7 +496,7 @@ void TopologyPage::onFaceDeleted(int id) {
     return;
   for (int i = 0; i < m_faceList->count(); ++i) {
     QListWidgetItem *item = m_faceList->item(i);
-    if (item->text().startsWith(QString("Face %1:").arg(id))) {
+    if (item->data(Qt::UserRole).toInt() == id) {
       delete m_faceList->takeItem(i);
       repopulateUnused();
       break;
@@ -512,7 +517,10 @@ void TopologyPage::onEdgeSelectionChanged(QListWidgetItem *current,
 
   for (int i = 0; i < m_edgeList->count(); ++i) {
     QListWidgetItem *item = m_edgeList->item(i);
-    QRegExp rx("Edge \\[(\\d+)-(\\d+)\\]");
+
+    // Updated Regex to match "Edge X: Node A - Node B"
+    QRegExp rx("Node (\\d+) - Node (\\d+)");
+
     if (rx.indexIn(item->text()) >= 0) {
       int n1 = rx.cap(1).toInt();
       int n2 = rx.cap(2).toInt();
@@ -530,10 +538,18 @@ void TopologyPage::onNodeSelectionChanged(QListWidgetItem *current,
 
   for (int i = 0; i < m_nodeList->count(); ++i) {
     QListWidgetItem *item = m_nodeList->item(i);
-    QRegExp rx("Node (\\d+)");
-    if (rx.indexIn(item->text()) >= 0) {
-      int nodeId = rx.cap(1).toInt();
+
+    // Prefer ID from UserRole (set in addNodeToList)
+    if (item->data(Qt::UserRole).isValid()) {
+      int nodeId = item->data(Qt::UserRole).toInt();
       emit nodeHighlightRequested(nodeId, item->isSelected());
+    } else {
+      // Fallback for any legacy items (shouldn't happen with new addNodeToList)
+      QRegExp rx("Node (\\d+)");
+      if (rx.indexIn(item->text()) >= 0) {
+        int nodeId = rx.cap(1).toInt();
+        emit nodeHighlightRequested(nodeId, item->isSelected());
+      }
     }
   }
 }
@@ -547,12 +563,17 @@ void TopologyPage::onTopologySelectionChanged(
   m_nodeList->clearSelection();
   for (int i = 0; i < m_nodeList->count(); ++i) {
     QListWidgetItem *item = m_nodeList->item(i);
-    QRegExp rx("Node (\\d+)");
-    if (rx.indexIn(item->text()) >= 0) {
-      int id = rx.cap(1).toInt();
-      if (nodeIds.contains(id)) {
-        item->setSelected(true);
-      }
+    int id = -1;
+    if (item->data(Qt::UserRole).isValid()) {
+      id = item->data(Qt::UserRole).toInt();
+    } else {
+      QRegExp rx("Node (\\d+)");
+      if (rx.indexIn(item->text()) >= 0)
+        id = rx.cap(1).toInt();
+    }
+
+    if (id != -1 && nodeIds.contains(id)) {
+      item->setSelected(true);
     }
   }
 
@@ -560,7 +581,8 @@ void TopologyPage::onTopologySelectionChanged(
   m_edgeList->clearSelection();
   for (int i = 0; i < m_edgeList->count(); ++i) {
     QListWidgetItem *item = m_edgeList->item(i);
-    QRegExp rx("Edge \\[(\\d+)-(\\d+)\\]");
+    // Parse nodes from text to match against edgeIds pair
+    QRegExp rx("Node (\\d+) - Node (\\d+)");
     if (rx.indexIn(item->text()) >= 0) {
       int n1 = rx.cap(1).toInt();
       int n2 = rx.cap(2).toInt();
@@ -574,12 +596,17 @@ void TopologyPage::onTopologySelectionChanged(
   m_faceList->clearSelection();
   for (int i = 0; i < m_faceList->count(); ++i) {
     QListWidgetItem *item = m_faceList->item(i);
-    QRegExp rx("Face (\\d+):");
-    if (rx.indexIn(item->text()) >= 0) {
-      int id = rx.cap(1).toInt();
-      if (faceIds.contains(id)) {
-        item->setSelected(true);
-      }
+    int id = -1;
+    if (item->data(Qt::UserRole).isValid()) {
+      id = item->data(Qt::UserRole).toInt();
+    } else {
+      QRegExp rx("Face (\\d+):");
+      if (rx.indexIn(item->text()) >= 0)
+        id = rx.cap(1).toInt();
+    }
+
+    if (id != -1 && faceIds.contains(id)) {
+      item->setSelected(true);
     }
   }
 

@@ -780,6 +780,10 @@ int OccView::addTopologyNode(const gp_Pnt &p) {
       new Prs3d_PointAspect(Aspect_TOM_BALL, Quantity_NOC_RED, m_nodeSize);
   aisNode->Attributes()->SetPointAspect(pa);
 
+  // FIX: Force highlight to use Mode 0 (the only mode points support)
+  // This overrides the global Selection Style which defaults to Mode 1 (Shaded)
+  aisNode->SetHilightMode(0);
+
   m_context->Display(aisNode, Standard_True);
   m_context->SetZLayer(aisNode, Graphic3d_ZLayerId_Topmost);
   m_context->Activate(aisNode, 1, true);
@@ -796,6 +800,9 @@ void OccView::restoreTopologyNode(int id, const gp_Pnt &p) {
   Handle(Prs3d_PointAspect) pa =
       new Prs3d_PointAspect(Aspect_TOM_BALL, Quantity_NOC_RED, m_nodeSize);
   aisNode->Attributes()->SetPointAspect(pa);
+
+  // FIX: Force highlight to use Mode 0
+  aisNode->SetHilightMode(0);
 
   if (m_workbenchIndex == 1) {
     m_context->Display(aisNode, Standard_False); // Don't redraw yet
@@ -1141,22 +1148,42 @@ void OccView::mousePressEvent(QMouseEvent *event) {
 
       // 1. Identification (Independent of selection)
       int discoveredNodeId = -1;
+      int discoveredFaceId = -1; // Added for Face support
       QPair<int, int> discoveredEdge = qMakePair(-1, -1);
 
       if (!detectedObj.IsNull()) {
-        // Use EntityOwner for O(1) node identification
+        // Use EntityOwner for O(1) identification
         if (detectedObj->HasOwner()) {
           Handle(EntityOwner) owner =
               Handle(EntityOwner)::DownCast(detectedObj->GetOwner());
-          if (!owner.IsNull() && m_topologyNodes.contains(owner->id())) {
-            discoveredNodeId = owner->id();
+          if (!owner.IsNull()) {
+            int id = owner->id();
+
+            // Resolve ambiguity: Check if it's really a node or a face
+            // by comparing the detected object with our map entries.
+            if (m_topologyNodes.contains(id) &&
+                m_topologyNodes[id] == detectedObj) {
+              discoveredNodeId = id;
+              qDebug() << "Clicked Topology Node ID:" << id;
+            } else if (m_topologyFaces.contains(id) &&
+                       m_topologyFaces[id] == detectedObj) {
+              discoveredFaceId = id;
+              qDebug() << "Clicked Topology Face ID:" << id;
+            }
           }
         }
-        if (discoveredNodeId == -1) {
+
+        // Check Edges (if not identified as node/face)
+        if (discoveredNodeId == -1 && discoveredFaceId == -1) {
           for (auto it = m_topologyEdges.begin(); it != m_topologyEdges.end();
                ++it) {
             if (it.value() == detectedObj) {
               discoveredEdge = it.key();
+              // Print Edge ID
+              int edgeId = m_nodePairToEdgeIdMap.value(discoveredEdge, -1);
+              qDebug() << "Clicked Topology Edge ID:" << edgeId << "(Nodes"
+                       << discoveredEdge.first << "-" << discoveredEdge.second
+                       << ")";
               break;
             }
           }
@@ -1166,6 +1193,9 @@ void OccView::mousePressEvent(QMouseEvent *event) {
       // 2. Handle Selection (Only if matching mode or shifted)
       bool belongsToCurrentMode = false;
       if (discoveredNodeId != -1 && m_topologySelectionMode == SelNodes)
+        belongsToCurrentMode = true;
+      if (discoveredFaceId != -1 &&
+          m_topologySelectionMode == SelFaces) // Ensure faces can be selected
         belongsToCurrentMode = true;
       if (discoveredEdge != qMakePair(-1, -1) &&
           m_topologySelectionMode == SelEdges)

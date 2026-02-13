@@ -58,23 +58,27 @@ Topology::buildHalfEdgeLoop(TopoFace *face,
     } else if (n1 == nextN1 || n1 == nextN2) {
       common = n1;
     } else {
-      continue;
+      qDebug() << "Topology Error: Disconnected edges in face creation at index" << i;
+      continue; 
     }
 
     TopoHalfEdge *he = (common == n2) ? currEdge->getForwardHalfEdge()
                                       : currEdge->getBackwardHalfEdge();
-    if (!he)
-      continue;
+    if (!he) continue;
 
+    // --- FIX STARTS HERE ---
     if (he->face && he->face != face) {
-      // Half-edge already used by another face! (Non-manifold edge)
-      // For now, allow but log.
+      qDebug() << "Topology Error: Half-edge theft detected. Edge" << currEdge->getID() 
+               << "is already owned by Face" << he->face->getID();
+      // Abort to prevent corruption of the existing face
+      return {}; 
     }
+    // --- FIX ENDS HERE ---
 
     he->face = face;
     he->origin->setOut(he);
 
-    // Safeguard: Ensure we don't add the same HE twice to the same face loop
+    // Safeguard: Ensure we don't add the same HE twice
     bool alreadyPresent = false;
     for (auto *existing : loopHEs) {
       if (existing == he) {
@@ -86,17 +90,19 @@ Topology::buildHalfEdgeLoop(TopoFace *face,
     if (!alreadyPresent) {
       loopHEs.push_back(he);
     } else {
-      qDebug() << "Topology: Warning - Duplicate half-edge detected in "
-                  "buildHalfEdgeLoop for face"
-               << face->getID() << ". Breaking loop to prevent corruption.";
-      break; // Stop building this loop
+      qDebug() << "Topology Warning: Duplicate half-edge in loop.";
+      break; 
     }
   }
 
-  // Remove wrapping duplicate if any (though alreadyPresent check above might
-  // handle it)
-  if (loopHEs.size() > 1 && loopHEs.front() == loopHEs.back()) {
-    loopHEs.pop_back();
+  // --- VALIDATION FIX ---
+  if (loopHEs.size() != edges.size()) {
+      qDebug() << "Topology Error: Failed to build complete loop. Edges may be unordered or disconnected.";
+      // Cleanup partially assigned faces to prevent dangling pointers
+      for (auto* he : loopHEs) {
+          if (he->face == face) he->face = nullptr;
+      }
+      return {};
   }
 
   // Link next/prev
