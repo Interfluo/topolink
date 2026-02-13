@@ -761,9 +761,13 @@ void OccView::restoreTopologyNode(int id, const gp_Pnt &p) {
       new Prs3d_PointAspect(Aspect_TOM_BALL, Quantity_NOC_RED, m_nodeSize);
   aisNode->Attributes()->SetPointAspect(pa);
 
-  m_context->Display(aisNode, Standard_False); // Don't redraw yet
-  m_context->SetZLayer(aisNode, Graphic3d_ZLayerId_Topmost);
-  m_context->Activate(aisNode, 1, true);
+  if (m_workbenchIndex == 1) {
+    m_context->Display(aisNode, Standard_False); // Don't redraw yet
+    m_context->SetZLayer(aisNode, Graphic3d_ZLayerId_Topmost);
+    m_context->Activate(aisNode, 1, true);
+  } else {
+    m_context->Erase(aisNode, Standard_False);
+  }
 
   m_topologyNodes.insert(id, aisNode);
   if (id >= m_nextNodeId)
@@ -785,7 +789,11 @@ void OccView::restoreTopologyEdge(int id, int n1, int n2) {
     aisLine->SetWidth(2.0);
     aisLine->SetColor(Quantity_NOC_RED);
 
-    m_context->Display(aisLine, Standard_False);
+    if (m_workbenchIndex == 1) {
+      m_context->Display(aisLine, Standard_False);
+    } else {
+      m_context->Erase(aisLine, Standard_False);
+    }
     auto key = qMakePair(qMin(n1, n2), qMax(n1, n2));
     m_topologyEdges.insert(key, aisLine);
 
@@ -810,6 +818,7 @@ void OccView::restoreTopologyFace(int id, const QList<int> &nodeIds) {
 
 void OccView::finalizeRestoration() {
   if (!m_context.IsNull()) {
+    setWorkbench(m_workbenchIndex);
     m_context->UpdateCurrentViewer();
   }
 }
@@ -1402,13 +1411,18 @@ void OccView::createFaceVisual(int faceId, const QList<int> &nodeIds) {
 
   // Set Display Mode to Shaded (1)
   m_context->SetDisplayMode(aisFace, 1, Standard_False);
-  m_context->Display(aisFace, Standard_True);
-  m_context->SetZLayer(aisFace, Graphic3d_ZLayerId_Top);
 
-  if (m_faceStyles.contains(faceId) && m_faceStyles[faceId].renderMode == 2) {
-    m_context->Erase(aisFace, Standard_False);
+  if (m_workbenchIndex == 1) {
+    m_context->Display(aisFace, Standard_False);
+    m_context->SetZLayer(aisFace, Graphic3d_ZLayerId_Top);
+
+    if (m_faceStyles.contains(faceId) && m_faceStyles[faceId].renderMode == 2) {
+      m_context->Erase(aisFace, Standard_False);
+    } else {
+      m_context->Deactivate(aisFace);
+    }
   } else {
-    m_context->Deactivate(aisFace);
+    m_context->Erase(aisFace, Standard_False);
   }
 
   m_topologyFaces.insert(faceId, aisFace);
@@ -1751,12 +1765,23 @@ void OccView::setWorkbench(int index) {
     for (auto face : m_topologyFaces)
       m_context->Erase(face, Standard_False);
     updateSmootherVisualization();
-  } else {
+  } else if (index == 0) { // Geometry Workbench
     // Show Geometry
     if (!m_aisShape.IsNull()) {
       m_context->Display(m_aisShape, Standard_False);
     }
-
+    // Hide Topology
+    for (auto node : m_topologyNodes)
+      m_context->Erase(node, Standard_False);
+    for (auto edge : m_topologyEdges)
+      m_context->Erase(edge, Standard_False);
+    for (auto face : m_topologyFaces)
+      m_context->Erase(face, Standard_False);
+  } else if (index == 1) { // Topology Workbench
+    // Show Geometry
+    if (!m_aisShape.IsNull()) {
+      m_context->Display(m_aisShape, Standard_False);
+    }
     // Show Topology
     for (auto node : m_topologyNodes)
       m_context->Display(node, Standard_False);
@@ -1764,13 +1789,15 @@ void OccView::setWorkbench(int index) {
       m_context->Display(edge, Standard_False);
     for (auto face : m_topologyFaces)
       m_context->Display(face, Standard_False);
-
-    // ENSURE selection state is synchronized with interaction mode
-    setInteractionMode(m_interactionMode);
-    hideSmootherVisualization();
   }
 
-  m_context->UpdateCurrentViewer();
+  // ENSURE selection state is synchronized with interaction mode
+  setInteractionMode(m_interactionMode);
+  hideSmootherVisualization();
+
+  if (!m_context.IsNull()) {
+    m_context->UpdateCurrentViewer();
+  }
 }
 
 void OccView::cycleSelection() {
@@ -2437,12 +2464,18 @@ void OccView::setTopologyFaceGroupAppearance(const QList<int> &ids,
     case 0: // Shaded
       aisFace->SetColor(occColor);
       aisFace->SetTransparency(0.0);
-      m_context->Display(aisFace, Standard_False);
+      if (m_workbenchIndex == 1)
+        m_context->Display(aisFace, Standard_False);
+      else
+        m_context->Erase(aisFace, Standard_False);
       break;
     case 1: // Translucent
       aisFace->SetColor(occColor);
       aisFace->SetTransparency(0.5);
-      m_context->Display(aisFace, Standard_False);
+      if (m_workbenchIndex == 1)
+        m_context->Display(aisFace, Standard_False);
+      else
+        m_context->Erase(aisFace, Standard_False);
       break;
     case 2: // Hidden
       m_context->Erase(aisFace, Standard_False);
@@ -2476,11 +2509,17 @@ void OccView::setTopologyEdgeGroupAppearance(const QList<int> &ids,
     switch (renderMode) {
     case 0: // Shaded
       aisObj->SetColor(occColor);
-      m_context->Display(aisObj, Standard_False);
+      if (m_workbenchIndex == 1)
+        m_context->Display(aisObj, Standard_False);
+      else
+        m_context->Erase(aisObj, Standard_False);
       break;
     case 1: // Translucent
       aisObj->SetColor(occColor);
-      m_context->Display(aisObj, Standard_False);
+      if (m_workbenchIndex == 1)
+        m_context->Display(aisObj, Standard_False);
+      else
+        m_context->Erase(aisObj, Standard_False);
       break;
     case 2: // Hidden
       m_context->Erase(aisObj, Standard_False);
