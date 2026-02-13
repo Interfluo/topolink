@@ -1,5 +1,9 @@
 # TopoLink
 
+> [!WARNING]
+> **Currently under active development**
+> Tool is not yet fully functional with many bugs.
+
 A Qt5/OpenCASCADE-based mesh visualization tool with STEP file import capabilities.
 
 ## Features
