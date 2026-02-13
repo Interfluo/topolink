@@ -1,40 +1,42 @@
 #include "OccView.h"
-#include "EntityOwner.h"
-#if defined(_WIN32)
-#else
-#include <unistd.h>
-#endif
-
+#include "../core/EllipticSolver.h"
 #include "../core/TopoEdge.h"
 #include "../core/TopoFace.h"
 #include "../core/TopoHalfEdge.h"
 #include "../core/TopoNode.h"
 #include "../core/Topology.h"
-
-#include <Aspect_DisplayConnection.hxx>
-#include <BRepBuilderAPI_MakeVertex.hxx>
-#include <BRepExtrema_DistShapeShape.hxx>
-#include <BRep_Builder.hxx>
-#include <BRep_Tool.hxx>
-#include <GeomAPI_ProjectPointOnCurve.hxx>
-#include <GeomAPI_ProjectPointOnSurf.hxx>
-#include <OpenGl_GraphicDriver.hxx>
-#include <TopoDS_Compound.hxx>
-#include <cmath>
+#include "EntityOwner.h"
+#include "pages/SmootherPage.h"
 
 #include <AIS_ColoredShape.hxx>
+#include <AIS_Line.hxx>
+#include <AIS_Point.hxx>
 #include <AIS_Shape.hxx>
+#include <AIS_Triangulation.hxx>
+#include <Aspect_DisplayConnection.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <Geom_CartesianPoint.hxx>
+#include <Geom_Line.hxx>
 #include <Graphic3d_Camera.hxx>
 #include <IntCurvesFace_ShapeIntersector.hxx>
+#include <OpenGl_GraphicDriver.hxx>
+#include <Poly_Array1OfTriangle.hxx>
+#include <Poly_Triangulation.hxx>
 #include <Precision.hxx>
-#include <QDebug>
+#include <Prs3d_PointAspect.hxx>
+#include <Quantity_Color.hxx>
+#include <Quantity_NameOfColor.hxx>
 #include <StdSelect_BRepOwner.hxx>
+#include <TColgp_Array1OfPnt.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
@@ -43,14 +45,21 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Lin.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_XYZ.hxx>
 
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPair>
+#include <QSet>
 #include <QShowEvent>
+
+#include <cmath>
 
 // Platform specific window handles
 #if defined(_WIN32)
@@ -245,6 +254,27 @@ void OccView::removeTopologyEdge(int n1, int n2) {
       int id = m_nodePairToEdgeIdMap[key];
       m_edgeIdMap.remove(id);
       m_nodePairToEdgeIdMap.remove(key);
+    }
+
+    // Cascading deletion: remove faces that contain this edge
+    QList<int> facesToRemove;
+    for (auto it = m_faceNodeMap.begin(); it != m_faceNodeMap.end(); ++it) {
+      const QList<int> &nodes = it.value();
+      bool containsEdge = false;
+      for (int i = 0; i < nodes.size(); ++i) {
+        int nA = nodes[i];
+        int nB = nodes[(i + 1) % nodes.size()];
+        if ((nA == n1 && nB == n2) || (nA == n2 && nB == n1)) {
+          containsEdge = true;
+          break;
+        }
+      }
+      if (containsEdge) {
+        facesToRemove.append(it.key());
+      }
+    }
+    for (int fid : facesToRemove) {
+      removeTopologyFace(fid);
     }
 
     emit topologyEdgeDeleted(n1, n2);
@@ -634,23 +664,29 @@ void OccView::keyPressEvent(QKeyEvent *event) {
     event->accept();
   } else if (event->key() == Qt::Key_Delete ||
              event->key() == Qt::Key_Backspace) {
-    if (m_interactionMode == Mode_Topology && !m_selectedNode.IsNull()) {
-      // Find ID of selected node
-      int idToRemove = -1;
-      for (auto it = m_topologyNodes.begin(); it != m_topologyNodes.end();
-           ++it) {
-        if (it.value() == m_selectedNode) {
-          idToRemove = it.key();
-          break;
-        }
+    if (m_interactionMode == Mode_Topology) {
+      // 1. Gather all selected IDs from the AIS context
+      QList<int> nodesToDelete = getSelectedNodeIds();
+      QList<QPair<int, int>> edgesToDelete = getSelectedEdgeIds();
+      QList<int> facesToDelete = getSelectedFaceIds();
+
+      // 2. Perform deletions
+      for (int nid : nodesToDelete) {
+        removeTopologyNode(nid);
       }
-      if (idToRemove != -1) {
-        removeTopologyNode(idToRemove);
-        m_selectedNode.Nullify();
-        m_selectedNodeId = -1;
-        m_draggedNodeId = -1;
-        m_isDraggingNode = false;
+      for (const auto &epair : edgesToDelete) {
+        removeTopologyEdge(epair.first, epair.second);
       }
+      for (int fid : facesToDelete) {
+        removeTopologyFace(fid);
+      }
+
+      // 3. Clear transient selection state
+      m_selectedNode.Nullify();
+      m_selectedNodeId = -1;
+      m_draggedNodeId = -1;
+      m_isDraggingNode = false;
+      m_selectedEdge = qMakePair(-1, -1);
     }
     event->accept();
   } else if (event->key() == Qt::Key_M) {
@@ -661,9 +697,9 @@ void OccView::keyPressEvent(QKeyEvent *event) {
 
     if (m_interactionMode == Mode_Topology && m_selectedNodeId != -1 &&
         m_hoveredNodeId != -1 && m_selectedNodeId != m_hoveredNodeId) {
-      qDebug() << "OccView: Emitting topologyNodesMerged(" << m_selectedNodeId
-               << "," << m_hoveredNodeId << ")";
-      emit topologyNodesMerged(m_selectedNodeId, m_hoveredNodeId);
+      qDebug() << "OccView: Emitting topologyNodesMerged(" << m_hoveredNodeId
+               << "," << m_selectedNodeId << ")";
+      emit topologyNodesMerged(m_hoveredNodeId, m_selectedNodeId);
 
       // Reset selection state as MainWindow will have removed the node
       m_hoveredNodeId = -1;
@@ -1256,10 +1292,23 @@ void OccView::mouseReleaseEvent(QMouseEvent *event) {
       gp_Pnt p3 = p1.Translated(vMouse);
       gp_Pnt p4 = p2.Translated(vMouse);
 
+      // Project p3 and p4 to surface if possible
+      if (!face.IsNull()) {
+        BRepExtrema_DistShapeShape ext3(BRepBuilderAPI_MakeVertex(p3).Vertex(),
+                                        face);
+        if (ext3.IsDone() && ext3.NbSolution() > 0)
+          p3 = ext3.PointOnShape2(1);
+
+        BRepExtrema_DistShapeShape ext4(BRepBuilderAPI_MakeVertex(p4).Vertex(),
+                                        face);
+        if (ext4.IsDone() && ext4.NbSolution() > 0)
+          p4 = ext4.PointOnShape2(1);
+      }
+
       // Create Nodes
       int n3 = addTopologyNode(p3);
       int n4 = addTopologyNode(p4);
-      emit topologyNodeCreated(n3, 0, 0, 0); // TODO: Project to surface
+      emit topologyNodeCreated(n3, 0, 0, 0);
       emit topologyNodeCreated(n4, 0, 0, 0);
 
       // Create Edges
@@ -1288,8 +1337,11 @@ void OccView::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void OccView::addTopologyFace(const QList<int> &nodeIds) {
-  if (nodeIds.size() < 3)
+  // Strict Quad Domains Only
+  if (nodeIds.size() != 4) {
+    qDebug() << "OccView: Rejecting face creation - only QUADS are supported.";
     return;
+  }
 
   int id = m_nextFaceId++;
   createFaceVisual(id, nodeIds);
@@ -1339,45 +1391,41 @@ Handle(AIS_InteractiveObject) OccView::buildFaceShape(
     // Fallback if planar face creation fails
   }
 
-  // 4. Fallback for non-planar polygons (e.g. non-planar quads)
-  // Simple approach: Triangle fan or split quad into 2 triangles
-  // For visualization, we just need something that shows the face area.
-  if (cleanIds.size() == 4) {
-    // Split quad [0,1,2,3] into [0,1,2] and [0,2,3]
+  // 4. Generic fallback: Triangulate (Triangle Fan) for non-planar or many-node
+  // polygons
+  TopoDS_Compound compound;
+  BRep_Builder builder;
+  builder.MakeCompound(compound);
+  bool addedAny = false;
+
+  if (cleanIds.size() >= 3) {
     gp_Pnt p0 = getTopologyNodePosition(cleanIds[0]);
-    gp_Pnt p1 = getTopologyNodePosition(cleanIds[1]);
-    gp_Pnt p2 = getTopologyNodePosition(cleanIds[2]);
-    gp_Pnt p3 = getTopologyNodePosition(cleanIds[3]);
+    for (int i = 1; i < cleanIds.size() - 1; ++i) {
+      gp_Pnt p1 = getTopologyNodePosition(cleanIds[i]);
+      gp_Pnt p2 = getTopologyNodePosition(cleanIds[i + 1]);
 
-    BRepBuilderAPI_MakePolygon poly1, poly2;
-    poly1.Add(p0);
-    poly1.Add(p1);
-    poly1.Add(p2);
-    poly1.Close();
-    poly2.Add(p0);
-    poly2.Add(p2);
-    poly2.Add(p3);
-    poly2.Close();
-
-    if (poly1.IsDone() && poly2.IsDone()) {
       try {
-        BRepBuilderAPI_MakeFace mf1(poly1.Wire());
-        BRepBuilderAPI_MakeFace mf2(poly2.Wire());
-        if (mf1.IsDone() && mf2.IsDone()) {
-          Handle(AIS_ColoredShape) comp = new AIS_ColoredShape(mf1.Face());
-          // Note: AIS_ColoredShape doesn't easily support multiple shapes in
-          // one object if not a compound. For visualization, we could return a
-          // compound.
-          TopoDS_Compound compound;
-          BRep_Builder b;
-          b.MakeCompound(compound);
-          b.Add(compound, mf1.Face());
-          b.Add(compound, mf2.Face());
-          return new AIS_ColoredShape(compound);
+        BRepBuilderAPI_MakePolygon triPoly;
+        triPoly.Add(p0);
+        triPoly.Add(p1);
+        triPoly.Add(p2);
+        triPoly.Close();
+
+        if (triPoly.IsDone()) {
+          BRepBuilderAPI_MakeFace triFace(triPoly.Wire());
+          if (triFace.IsDone()) {
+            builder.Add(compound, triFace.Face());
+            addedAny = true;
+          }
         }
-      } catch (Standard_ConstructionError &) {
+      } catch (...) {
+        // Skip degenerate triangles
       }
     }
+  }
+
+  if (addedAny) {
+    return new AIS_ColoredShape(compound);
   }
 
   // Generic fallback: failed to make robust face
@@ -2782,4 +2830,140 @@ void OccView::createTfiMesh(int faceId) {
       }
     }
   }
+}
+
+void OccView::runEllipticSolver(const SmootherConfig &config) {
+  if (!m_topologyModel || m_context.IsNull())
+    return;
+
+  hideSmootherVisualization();
+
+  const auto &faces = m_topologyModel->getFaces();
+  for (auto const &[faceId, face] : faces) {
+    // 1. Get ordered half-edges
+    std::vector<TopoHalfEdge *> loop;
+    TopoHalfEdge *startHe = face->getBoundary();
+    if (!startHe)
+      continue;
+    TopoHalfEdge *current = startHe;
+    do {
+      loop.push_back(current);
+      current = current->next;
+    } while (current != startHe && current != nullptr && loop.size() < 100);
+
+    if (loop.size() != 4)
+      continue;
+
+    // 2. Extract corners and subdivisions
+    gp_Pnt c0 = loop[0]->origin->getPosition();
+    gp_Pnt c1 = loop[1]->origin->getPosition();
+    gp_Pnt c2 = loop[2]->origin->getPosition();
+    gp_Pnt c3 = loop[3]->origin->getPosition();
+
+    int M = loop[0]->parentEdge->getSubdivisions();
+    int N = loop[1]->parentEdge->getSubdivisions();
+    if (M < 1)
+      M = 1;
+    if (N < 1)
+      N = 1;
+
+    // 3. Initialize Grid with TFI
+    std::vector<std::vector<gp_Pnt>> grid(M + 1, std::vector<gp_Pnt>(N + 1));
+    std::vector<std::vector<bool>> isFixed(M + 1,
+                                           std::vector<bool>(N + 1, false));
+
+    auto getTfiPoint = [&](double u, double v) {
+      gp_Pnt s0_u = gp_Pnt(c0.XYZ() * (1.0 - u) + c1.XYZ() * u);
+      gp_Pnt s2_u = gp_Pnt(c3.XYZ() * (1.0 - u) + c2.XYZ() * u);
+      gp_Pnt s3_v = gp_Pnt(c0.XYZ() * (1.0 - v) + c3.XYZ() * v);
+      gp_Pnt s1_v = gp_Pnt(c1.XYZ() * (1.0 - v) + c2.XYZ() * v);
+
+      gp_XYZ p_uv =
+          (s0_u.XYZ() * (1.0 - v) + s2_u.XYZ() * v + s3_v.XYZ() * (1.0 - u) +
+           s1_v.XYZ() * u) -
+          (c0.XYZ() * (1.0 - u) * (1.0 - v) + c1.XYZ() * u * (1.0 - v) +
+           c2.XYZ() * u * v + c3.XYZ() * (1.0 - u) * v);
+      return gp_Pnt(p_uv);
+    };
+
+    for (int i = 0; i <= M; ++i) {
+      for (int j = 0; j <= N; ++j) {
+        grid[i][j] = getTfiPoint((double)i / M, (double)j / N);
+        if (i == 0 || i == M || j == 0 || j == N) {
+          isFixed[i][j] = true;
+        }
+      }
+    }
+
+    // 4. Smooth Grid
+    EllipticSolver::Params params;
+    params.iterations = config.faceIters;
+    params.relaxation = config.faceRelax;
+    params.bcRelaxation = config.faceBCRelax;
+
+    EllipticSolver::smoothGrid(grid, isFixed, params);
+
+    // 5. Visualize Results
+    int nbNodes = (M + 1) * (N + 1);
+    int nbTriangles = 2 * M * N;
+    Handle(Poly_Triangulation) triangulation =
+        new Poly_Triangulation(nbNodes, nbTriangles, Standard_False);
+
+    for (int j = 0; j <= N; ++j) {
+      for (int i = 0; i <= M; ++i) {
+        triangulation->SetNode(j * (M + 1) + i + 1, grid[i][j]);
+      }
+    }
+
+    int triIdx = 1;
+    for (int j = 0; j < N; ++j) {
+      for (int i = 0; i < M; ++i) {
+        int n1 = j * (M + 1) + i + 1;
+        int n2 = n1 + 1;
+        int n3 = (j + 1) * (M + 1) + i + 1;
+        int n4 = n3 + 1;
+        triangulation->SetTriangle(triIdx++, Poly_Triangle(n1, n2, n4));
+        triangulation->SetTriangle(triIdx++, Poly_Triangle(n1, n4, n3));
+      }
+    }
+
+    Handle(AIS_Triangulation) aisMesh = new AIS_Triangulation(triangulation);
+    aisMesh->SetColor(Quantity_NOC_WHITE);
+    m_context->Display(aisMesh, Standard_False);
+    m_smootherObjects.append(aisMesh);
+
+    // Grid lines (Blue)
+    Quantity_Color blue(Quantity_NOC_BLUE);
+    for (int i = 0; i <= M; ++i) {
+      for (int j = 0; j < N; ++j) {
+        gp_Pnt p1 = grid[i][j];
+        gp_Pnt p2 = grid[i][j + 1];
+        if (p1.SquareDistance(p2) < 1e-7)
+          continue;
+        Handle(AIS_Line) aisLine = new AIS_Line(new Geom_CartesianPoint(p1),
+                                                new Geom_CartesianPoint(p2));
+        aisLine->SetColor(blue);
+        aisLine->SetWidth(1.0);
+        m_context->Display(aisLine, Standard_False);
+        m_smootherObjects.append(aisLine);
+      }
+    }
+    for (int j = 0; j <= N; ++j) {
+      for (int i = 0; i < M; ++i) {
+        gp_Pnt p1 = grid[i][j];
+        gp_Pnt p2 = grid[i + 1][j];
+        if (p1.SquareDistance(p2) < 1e-7)
+          continue;
+        Handle(AIS_Line) aisLine = new AIS_Line(new Geom_CartesianPoint(p1),
+                                                new Geom_CartesianPoint(p2));
+        aisLine->SetColor(blue);
+        aisLine->SetWidth(1.0);
+        m_context->Display(aisLine, Standard_False);
+        m_smootherObjects.append(aisLine);
+      }
+    }
+  }
+
+  if (m_view)
+    m_view->Redraw();
 }

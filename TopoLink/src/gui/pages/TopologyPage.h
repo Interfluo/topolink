@@ -120,6 +120,12 @@ public:
   Qt::ItemFlags flags(const QModelIndex &index) const override {
     if (!index.isValid())
       return Qt::NoItemFlags;
+
+    // For "Unused" group, the IDs column should be read-only
+    if (index.column() == ColIDs && m_groups[index.row()].name == "Unused") {
+      return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    }
+
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
   }
 
@@ -267,6 +273,7 @@ public:
   }
 
   void initializeDefaultGroups();
+  void repopulateUnused();
 
   // Update geometry group names for linked group dropdowns
   void setGeometryGroupNames(const QStringList &edgeNames,
@@ -410,5 +417,6 @@ private:
   QPair<int, int> m_lastHighlightedEdge = {-1, -1};
   int m_lastHighlightedNodeId = -1;
   bool m_isUpdatingSelection = false;
+  bool m_isUpdatingUnused = false;
   bool m_autoGroupUnused = true;
 };

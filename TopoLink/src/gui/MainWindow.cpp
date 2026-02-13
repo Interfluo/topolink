@@ -124,6 +124,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     }
   });
 
+  connect(m_smootherPage, &SmootherPage::runSolverRequested, this,
+          &MainWindow::onRunSolver);
+
   // Initial Update - Defer until end of constructor
 
   // Bottom Console Dock
@@ -192,11 +195,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     }
   });
 
-  connect(m_occView, &OccView::topologyEdgeDeleted,
-          [this](int n1, int n2) { m_topologyPage->onEdgeDeleted(n1, n2); });
+  connect(m_occView, &OccView::topologyEdgeDeleted, [this](int n1, int n2) {
+    if (m_topology) {
+      TopoEdge *e = m_topology->getEdge(n1, n2);
+      if (e) {
+        m_topology->deleteEdge(e->getID());
+      }
+    }
+    m_topologyPage->onEdgeDeleted(n1, n2);
+  });
 
-  connect(m_occView, &OccView::topologyFaceDeleted,
-          [this](int id) { m_topologyPage->onFaceDeleted(id); });
+  connect(m_occView, &OccView::topologyFaceDeleted, [this](int id) {
+    if (m_topology) {
+      m_topology->deleteFace(id);
+    }
+    m_topologyPage->onFaceDeleted(id);
+  });
 
   connect(m_occView, &OccView::topologySelectionChanged, [this]() {
     m_topologyPage->onTopologySelectionChanged(m_occView->getSelectedNodeIds(),
@@ -887,4 +901,12 @@ void MainWindow::restoreTopologyToView() {
   m_occView->finalizeRestoration();
   onUpdateTopologyGroups(); // Re-derive and apply constraints and appearances
   logMessage("Topology restoration complete.");
+}
+
+void MainWindow::onRunSolver() {
+  if (m_smootherPage) {
+    logMessage("Running elliptic grid smoother...");
+    m_occView->runEllipticSolver(m_smootherPage->getConfig());
+    logMessage("Smoothing complete.");
+  }
 }

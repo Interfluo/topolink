@@ -1,4 +1,5 @@
 #pragma once
+#include "../../core/SmootherConfig.h"
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -11,6 +12,11 @@ class SmootherPage : public QWidget {
   Q_OBJECT
 public:
   explicit SmootherPage(QWidget *parent = nullptr);
+
+  SmootherConfig getConfig() const;
+
+signals:
+  void runSolverRequested();
 
 private:
   void setupUI();

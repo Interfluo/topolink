@@ -3,10 +3,26 @@
 GeometryPage::GeometryPage(QWidget *parent) : QWidget(parent) {
   m_edgeModel = new GroupTableModel(this);
   m_faceModel = new GroupTableModel(this);
+
+  // Setup automatic repopulation of "Unused" when other groups change
+  auto onGroupChanged = [this]() {
+    if (m_isUpdatingUnused)
+      return;
+    repopulateUnused(m_numFaces, m_numEdges);
+  };
+
+  connect(m_edgeModel, &QAbstractTableModel::dataChanged, onGroupChanged);
+  connect(m_edgeModel, &QAbstractTableModel::rowsRemoved, onGroupChanged);
+  connect(m_faceModel, &QAbstractTableModel::dataChanged, onGroupChanged);
+  connect(m_faceModel, &QAbstractTableModel::rowsRemoved, onGroupChanged);
+
   setupUI();
 }
 
 void GeometryPage::initializeDefaultGroups(int numFaces, int numEdges) {
+  m_numFaces = numFaces;
+  m_numEdges = numEdges;
+
   GeometryGroup unusedFaces;
   unusedFaces.name = "Unused";
   unusedFaces.color = QColor(140, 140, 140);
@@ -25,6 +41,10 @@ void GeometryPage::initializeDefaultGroups(int numFaces, int numEdges) {
 }
 
 void GeometryPage::repopulateUnused(int numFaces, int numEdges) {
+  if (m_isUpdatingUnused)
+    return;
+  m_isUpdatingUnused = true;
+
   QSet<int> usedFaces = getUsedFaceIds();
   QSet<int> usedEdges = getUsedEdgeIds();
 
@@ -37,39 +57,42 @@ void GeometryPage::repopulateUnused(int numFaces, int numEdges) {
     }
 
     const GeometryGroup *existing = model->getGroupByName("Unused");
-    if (existing) {
-      int row = -1;
-      for (int i = 0; i < model->rowCount(); ++i) {
-        if (model->data(model->index(i, 0)).toString() == "Unused") {
-          row = i;
-          break;
-        }
+    int row = -1;
+    for (int i = 0; i < model->rowCount(); ++i) {
+      if (model->data(model->index(i, 0)).toString() == "Unused") {
+        row = i;
+        break;
       }
-      if (row != -1) {
-        QStringList sl;
-        for (int id : unusedIds)
-          sl << QString::number(id);
-        model->setData(model->index(row, 1), sl.join(","));
-      }
-    } else {
-      model->addGroup();
-      int row = model->rowCount() - 1;
-      model->setData(model->index(row, 0), "Unused");
+    }
+
+    if (row != -1) {
       QStringList sl;
       for (int id : unusedIds)
         sl << QString::number(id);
       model->setData(model->index(row, 1), sl.join(","));
-      model->setData(model->index(row, 2), color);
+    } else {
+      model->addGroup();
+      int newRow = model->rowCount() - 1;
+      model->setData(model->index(newRow, 0), "Unused");
+      QStringList sl;
+      for (int id : unusedIds)
+        sl << QString::number(id);
+      model->setData(model->index(newRow, 1), sl.join(","));
+      model->setData(model->index(newRow, 2), color);
     }
   };
 
   updateModelUnused(m_faceModel, numFaces, usedFaces, QColor(140, 140, 140));
   updateModelUnused(m_edgeModel, numEdges, usedEdges, QColor(100, 100, 100));
+
+  m_isUpdatingUnused = false;
 }
 
 QSet<int> GeometryPage::getUsedEdgeIds() const {
   QSet<int> used;
   for (const GeometryGroup &group : m_edgeModel->groups()) {
+    if (group.name == "Unused")
+      continue;
     for (int id : group.ids)
       used.insert(id);
   }
@@ -79,6 +102,8 @@ QSet<int> GeometryPage::getUsedEdgeIds() const {
 QSet<int> GeometryPage::getUsedFaceIds() const {
   QSet<int> used;
   for (const GeometryGroup &group : m_faceModel->groups()) {
+    if (group.name == "Unused")
+      continue;
     for (int id : group.ids)
       used.insert(id);
   }
@@ -90,14 +115,28 @@ void GeometryPage::onAddFaceGroup() { m_faceModel->addGroup(); }
 
 void GeometryPage::onDeleteEdgeGroup() {
   QModelIndex index = m_edgeTable->currentIndex();
-  if (index.isValid())
+  if (index.isValid()) {
+    if (m_edgeModel->data(m_edgeModel->index(index.row(), 0)).toString() ==
+        "Unused") {
+      QMessageBox::warning(this, "Protected Group",
+                           "The 'Unused' group cannot be deleted.");
+      return;
+    }
     m_edgeModel->removeGroup(index.row());
+  }
 }
 
 void GeometryPage::onDeleteFaceGroup() {
   QModelIndex index = m_faceTable->currentIndex();
-  if (index.isValid())
+  if (index.isValid()) {
+    if (m_faceModel->data(m_faceModel->index(index.row(), 0)).toString() ==
+        "Unused") {
+      QMessageBox::warning(this, "Protected Group",
+                           "The 'Unused' group cannot be deleted.");
+      return;
+    }
     m_faceModel->removeGroup(index.row());
+  }
 }
 
 void GeometryPage::onUpdateViewer() { emit updateViewerRequested(); }

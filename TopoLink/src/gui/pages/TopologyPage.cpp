@@ -53,6 +53,14 @@ TopologyPage::TopologyPage(QWidget *parent) : QWidget(parent) {
   m_faceGroupModel = new TopologyGroupTableModel(this);
   m_edgeGeoDelegate = new GeometryGroupDelegate(this);
   m_faceGeoDelegate = new GeometryGroupDelegate(this);
+
+  // Setup automatic repopulation of "Unused"
+  auto onGroupChanged = [this]() { repopulateUnused(); };
+  connect(m_edgeGroupModel, &QAbstractTableModel::dataChanged, onGroupChanged);
+  connect(m_edgeGroupModel, &QAbstractTableModel::rowsRemoved, onGroupChanged);
+  connect(m_faceGroupModel, &QAbstractTableModel::dataChanged, onGroupChanged);
+  connect(m_faceGroupModel, &QAbstractTableModel::rowsRemoved, onGroupChanged);
+
   setupUI();
 }
 
@@ -244,6 +252,72 @@ void TopologyPage::initializeDefaultGroups() {
     unused.renderMode = RenderMode::Translucent;
     m_faceGroupModel->setDefaultGroup(unused);
   }
+  repopulateUnused();
+}
+
+void TopologyPage::repopulateUnused() {
+  if (m_isUpdatingUnused)
+    return;
+  m_isUpdatingUnused = true;
+
+  auto repopulate = [this](TopologyGroupTableModel *model, QListWidget *list,
+                           const QColor &color, RenderMode mode) {
+    QSet<int> universe;
+    for (int i = 0; i < list->count(); ++i) {
+      bool ok;
+      int id = list->item(i)->data(Qt::UserRole).toInt(&ok);
+      if (ok)
+        universe.insert(id);
+      else {
+        // Fallback to text parsing if needed
+        QRegExp rx("(Edge|Face) (\\d+)");
+        if (rx.indexIn(list->item(i)->text()) >= 0) {
+          universe.insert(rx.cap(2).toInt());
+        }
+      }
+    }
+
+    QSet<int> used;
+    int unusedRow = -1;
+    for (int i = 0; i < model->rowCount(); ++i) {
+      QString name = model->data(model->index(i, 0)).toString();
+      if (name == "Unused") {
+        unusedRow = i;
+      } else {
+        QStringList ids = model->data(model->index(i, 1))
+                              .toString()
+                              .split(",", Qt::SkipEmptyParts);
+        for (const QString &s : ids)
+          used.insert(s.toInt());
+      }
+    }
+
+    QList<int> unusedList;
+    for (int id : universe) {
+      if (!used.contains(id))
+        unusedList.append(id);
+    }
+
+    if (unusedRow == -1) {
+      model->addGroup();
+      unusedRow = model->rowCount() - 1;
+      model->setData(model->index(unusedRow, 0), "Unused");
+      model->setData(model->index(unusedRow, 3), color);
+      model->setData(model->index(unusedRow, 4), static_cast<int>(mode));
+    }
+
+    QStringList sl;
+    for (int id : unusedList)
+      sl << QString::number(id);
+    model->setData(model->index(unusedRow, 1), sl.join(","));
+  };
+
+  repopulate(m_edgeGroupModel, m_edgeList, QColor(255, 0, 0),
+             RenderMode::Shaded);
+  repopulate(m_faceGroupModel, m_faceList, QColor(255, 0, 0, 100),
+             RenderMode::Translucent);
+
+  m_isUpdatingUnused = false;
 }
 
 // ============================================================================
@@ -297,7 +371,7 @@ void TopologyPage::onNodeCreated(int id, double u, double v, int faceId) {
 
 void TopologyPage::addNodeToList(int id) {
   m_nodeList->addItem(QString("Node %1").arg(id));
-  initializeDefaultGroups(); // Ensure groups exist
+  initializeDefaultGroups(); // Ensure groups exist and are repopulated
 }
 
 void TopologyPage::onNodeMoved(int id, const gp_Pnt &p) {
@@ -347,6 +421,8 @@ void TopologyPage::onEdgeCreated(int n1, int n2, int id) {
 
   if (m_autoGroupUnused) {
     m_edgeGroupModel->appendIdToGroup(id, "Unused");
+  } else {
+    repopulateUnused();
   }
 }
 
@@ -358,6 +434,7 @@ void TopologyPage::onNodesMerged(int keepId, int removeId) {
       break;
     }
   }
+  repopulateUnused();
 }
 
 void TopologyPage::onFaceCreated(int id, const QList<int> &nodeIds) {
@@ -368,9 +445,14 @@ void TopologyPage::onFaceCreated(int id, const QList<int> &nodeIds) {
     nodesStr += QString::number(nid);
   }
   if (m_faceList) {
-    m_faceList->addItem(QString("Face %1: [%2]").arg(id).arg(nodesStr));
+    QListWidgetItem *item =
+        new QListWidgetItem(QString("Face %1: [%2]").arg(id).arg(nodesStr));
+    item->setData(Qt::UserRole, id);
+    m_faceList->addItem(item);
     if (m_autoGroupUnused) {
       m_faceGroupModel->appendIdToGroup(id, "Unused");
+    } else {
+      repopulateUnused();
     }
   }
 }
@@ -398,6 +480,7 @@ void TopologyPage::onEdgeDeleted(int n1, int n2) {
     QString t = item->text();
     if (t == s1 || t == s2 || t == s3 || t == s4) {
       delete m_edgeList->takeItem(i);
+      repopulateUnused();
       break;
     }
   }
@@ -410,6 +493,7 @@ void TopologyPage::onFaceDeleted(int id) {
     QListWidgetItem *item = m_faceList->item(i);
     if (item->text().startsWith(QString("Face %1:").arg(id))) {
       delete m_faceList->takeItem(i);
+      repopulateUnused();
       break;
     }
   }

@@ -74,4 +74,22 @@ void SmootherPage::setupUI() {
   runBtn->setStyleSheet("background-color: #0078d7; color: white; font-weight: "
                         "bold; padding: 10px;");
   mainLayout->addWidget(runBtn);
+
+  connect(runBtn, &QPushButton::clicked, this,
+          &SmootherPage::runSolverRequested);
+}
+
+SmootherConfig SmootherPage::getConfig() const {
+  SmootherConfig cfg;
+  cfg.edgeIters = m_edgeIters->value();
+  cfg.edgeRelax = m_edgeRelax->value();
+  cfg.edgeBCRelax = m_edgeBCRelax->value();
+  cfg.faceIters = m_faceIters->value();
+  cfg.faceRelax = m_faceRelax->value();
+  cfg.faceBCRelax = m_faceBCRelax->value();
+  cfg.singularityRelax = m_singularityRelax->value();
+  cfg.growthRateRelax = m_growthRateRelax->value();
+  cfg.subIters = m_subIters->value();
+  cfg.projFreq = m_projFreq->value();
+  return cfg;
 }

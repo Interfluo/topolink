@@ -104,6 +104,12 @@ public:
   Qt::ItemFlags flags(const QModelIndex &index) const override {
     if (!index.isValid())
       return Qt::NoItemFlags;
+
+    // For "Unused" group, the IDs column should be read-only
+    if (index.column() == 1 && m_groups[index.row()].name == "Unused") {
+      return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    }
+
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
   }
   bool setData(const QModelIndex &index, const QVariant &value,
@@ -310,4 +316,7 @@ private:
   QPushButton *m_updateBtn;
   QPushButton *m_exportBtn;
   QPushButton *m_importBtn;
+  int m_numFaces = 0;
+  int m_numEdges = 0;
+  bool m_isUpdatingUnused = false;
 };

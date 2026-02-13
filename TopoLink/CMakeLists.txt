@@ -42,6 +42,7 @@ set(SOURCES
     src/core/TopoEdge.cpp
     src/core/TopoFace.cpp
     src/core/Topology.cpp
+    src/core/EllipticSolver.cpp
     src/gui/ProjectManager.cpp
 )
 

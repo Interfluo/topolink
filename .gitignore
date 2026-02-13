@@ -61,3 +61,5 @@ htmlcov/
 # App Specific
 MeshingApp
 render_config.json.user
+*.igs
+*.stp

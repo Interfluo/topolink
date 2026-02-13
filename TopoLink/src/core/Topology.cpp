@@ -1,4 +1,5 @@
 #include "Topology.h"
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <algorithm>
@@ -65,15 +66,35 @@ Topology::buildHalfEdgeLoop(TopoFace *face,
     if (!he)
       continue;
 
+    if (he->face && he->face != face) {
+      // Half-edge already used by another face! (Non-manifold edge)
+      // For now, allow but log.
+    }
+
     he->face = face;
     he->origin->setOut(he);
 
-    if (loopHEs.empty() || loopHEs.back() != he) {
+    // Safeguard: Ensure we don't add the same HE twice to the same face loop
+    bool alreadyPresent = false;
+    for (auto *existing : loopHEs) {
+      if (existing == he) {
+        alreadyPresent = true;
+        break;
+      }
+    }
+
+    if (!alreadyPresent) {
       loopHEs.push_back(he);
+    } else {
+      qDebug() << "Topology: Warning - Duplicate half-edge detected in "
+                  "buildHalfEdgeLoop for face"
+               << face->getID() << ". Breaking loop to prevent corruption.";
+      break; // Stop building this loop
     }
   }
 
-  // Remove wrapping duplicate
+  // Remove wrapping duplicate if any (though alreadyPresent check above might
+  // handle it)
   if (loopHEs.size() > 1 && loopHEs.front() == loopHEs.back()) {
     loopHEs.pop_back();
   }
@@ -242,8 +263,10 @@ bool Topology::mergeNodes(int keepId, int removeId) {
   }
 
   // 4. Find degenerate faces:
-  //    - Has < 3 unique surviving edges, OR
-  //    - References any edge that will be deleted (self-loops, duplicates)
+  //    - Does NOT have exactly 4 unique surviving edges (Strict Quad Domain),
+  //    OR
+  //    - References any edge that will be deleted (self-loops, duplicates), OR
+  //    - Has duplicate references to the same surviving edge (loop corruption)
   std::vector<int> facesToDelete;
   for (auto &facePair : _faces) {
     const auto &faceEdges = facePair.second->getEdges();
@@ -256,7 +279,11 @@ bool Topology::mergeNodes(int keepId, int removeId) {
       }
       uniqueEdges.insert(e);
     }
-    if (refsDeletedEdge || uniqueEdges.size() < 3) {
+    // Strict Quad Domain: Must have exactly 4 unique edges.
+    // Also, must not have internal duplicates (faceEdges.size() ==
+    // uniqueEdges.size())
+    if (refsDeletedEdge || uniqueEdges.size() != 4 ||
+        faceEdges.size() != uniqueEdges.size()) {
       facesToDelete.push_back(facePair.first);
     }
   }

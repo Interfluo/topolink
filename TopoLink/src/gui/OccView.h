@@ -25,6 +25,8 @@
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 
+#include "../core/SmootherConfig.h"
+
 class Topology;
 class TopoFace;
 
@@ -128,6 +130,7 @@ public:
   void updateSmootherVisualization();
   void hideSmootherVisualization();
   void createTfiMesh(int faceId);
+  void runEllipticSolver(const SmootherConfig &config);
 
   // Topology Group Appearance
   void setTopologyFaceGroupAppearance(const QList<int> &ids,

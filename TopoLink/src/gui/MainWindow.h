@@ -35,6 +35,7 @@ private slots:
   void onLoadProject();
   void onUpdateGeometryGroups();
   void onUpdateTopologyGroups();
+  void onRunSolver();
 
   // Wizard Navigation
   void onNextPage();
