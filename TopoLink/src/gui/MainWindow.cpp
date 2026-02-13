@@ -578,7 +578,7 @@ bool MainWindow::importStep(const QString &fileName) {
     Handle(Prs3d_Drawer) drawer = aisShape->Attributes();
     drawer->SetFaceBoundaryDraw(true);
     drawer->SetFaceBoundaryAspect(
-        new Prs3d_LineAspect(Quantity_NOC_BLACK, Aspect_TOL_SOLID, 2.0));
+        new Prs3d_LineAspect(Quantity_NOC_BLACK, Aspect_TOL_SOLID, 1.0));
 
     // 5. Display it in the Context
     m_occView->getContext()->Display(aisShape, Standard_True);

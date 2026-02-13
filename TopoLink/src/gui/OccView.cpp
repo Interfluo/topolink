@@ -373,7 +373,7 @@ void OccView::addEdge(int node1, int node2) {
     Handle(Geom_CartesianPoint) pt2 = new Geom_CartesianPoint(p2);
     aisLine->SetPoints(pt1, pt2);
 
-    aisLine->SetWidth(2.0);
+    aisLine->SetWidth(m_edgeWidth);
     aisLine->SetColor(Quantity_NOC_RED);
 
     // Apply persistent style if it exists (for re-created or grouped edges)
@@ -786,7 +786,7 @@ void OccView::restoreTopologyEdge(int id, int n1, int n2) {
     Handle(Geom_CartesianPoint) pt1 = new Geom_CartesianPoint(p1);
     Handle(Geom_CartesianPoint) pt2 = new Geom_CartesianPoint(p2);
     aisLine->SetPoints(pt1, pt2);
-    aisLine->SetWidth(2.0);
+    aisLine->SetWidth(m_edgeWidth);
     aisLine->SetColor(Quantity_NOC_RED);
 
     if (m_workbenchIndex == 1) {
@@ -2321,7 +2321,7 @@ void OccView::mergeTopologyNodeEdges(int keepId, int removeId) {
             Handle(Geom_CartesianPoint) pt2 = new Geom_CartesianPoint(p2);
             aisLine->SetPoints(pt1, pt2);
 
-            aisLine->SetWidth(2.0);
+            aisLine->SetWidth(m_edgeWidth);
             aisLine->SetColor(Quantity_NOC_RED);
 
             m_context->Display(aisLine, Standard_False);
@@ -2509,6 +2509,7 @@ void OccView::setTopologyEdgeGroupAppearance(const QList<int> &ids,
     switch (renderMode) {
     case 0: // Shaded
       aisObj->SetColor(occColor);
+      aisObj->SetWidth(m_edgeWidth);
       if (m_workbenchIndex == 1)
         m_context->Display(aisObj, Standard_False);
       else
@@ -2516,6 +2517,7 @@ void OccView::setTopologyEdgeGroupAppearance(const QList<int> &ids,
       break;
     case 1: // Translucent
       aisObj->SetColor(occColor);
+      aisObj->SetWidth(m_edgeWidth);
       if (m_workbenchIndex == 1)
         m_context->Display(aisObj, Standard_False);
       else
@@ -2691,7 +2693,8 @@ void OccView::createTfiMesh(int faceId) {
         aisLine->SetPoints(new Geom_CartesianPoint(p1),
                            new Geom_CartesianPoint(p2));
         aisLine->SetColor(blue);
-        aisLine->SetWidth(isBoundary ? 3.0 : 1.0);
+        aisLine->SetWidth(isBoundary ? (m_edgeWidth > 1.0 ? m_edgeWidth : 2.0)
+                                     : 1.0);
         m_context->Display(aisLine, Standard_False);
         m_smootherObjects.append(aisLine);
       } catch (Standard_ConstructionError &) {
@@ -2716,7 +2719,8 @@ void OccView::createTfiMesh(int faceId) {
         aisLine->SetPoints(new Geom_CartesianPoint(p1),
                            new Geom_CartesianPoint(p2));
         aisLine->SetColor(blue);
-        aisLine->SetWidth(isBoundary ? 3.0 : 1.0);
+        aisLine->SetWidth(isBoundary ? (m_edgeWidth > 1.0 ? m_edgeWidth : 2.0)
+                                     : 1.0);
         m_context->Display(aisLine, Standard_False);
         m_smootherObjects.append(aisLine);
       } catch (Standard_ConstructionError &) {
