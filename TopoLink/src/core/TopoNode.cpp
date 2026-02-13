@@ -30,29 +30,8 @@ TopoNode::NodeFreedom TopoNode::getFreedom() const { return _freedom; }
 
 void TopoNode::setConstraintTargetID(const std::string &targetID) {
   _constraintTargetID = targetID;
-  // Auto-deduce freedom based on ID presence (basic heuristic)
-  if (!targetID.empty()) {
-    // This is a rough mapping, ideally the caller sets specific freedom
-    // But for legacy partial support we assume logic elsewhere determines type
-  }
 }
 
 std::string TopoNode::getConstraintTargetID() const {
   return _constraintTargetID;
-}
-
-void TopoNode::setMetadata(const std::string &key, const std::string &value) {
-  _metadata[key] = value;
-}
-
-std::string TopoNode::getMetadata(const std::string &key) const {
-  auto it = _metadata.find(key);
-  if (it != _metadata.end()) {
-    return it->second;
-  }
-  return "";
-}
-
-bool TopoNode::hasMetadata(const std::string &key) const {
-  return _metadata.find(key) != _metadata.end();
 }

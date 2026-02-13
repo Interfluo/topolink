@@ -1099,11 +1099,12 @@ void OccView::mousePressEvent(QMouseEvent *event) {
       QPair<int, int> discoveredEdge = qMakePair(-1, -1);
 
       if (!detectedObj.IsNull()) {
-        for (auto it = m_topologyNodes.begin(); it != m_topologyNodes.end();
-             ++it) {
-          if (it.value() == detectedObj) {
-            discoveredNodeId = it.key();
-            break;
+        // Use EntityOwner for O(1) node identification
+        if (detectedObj->HasOwner()) {
+          Handle(EntityOwner) owner =
+              Handle(EntityOwner)::DownCast(detectedObj->GetOwner());
+          if (!owner.IsNull() && m_topologyNodes.contains(owner->id())) {
+            discoveredNodeId = owner->id();
           }
         }
         if (discoveredNodeId == -1) {

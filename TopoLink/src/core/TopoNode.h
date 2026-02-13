@@ -1,14 +1,13 @@
 #ifndef TOPONODE_H
 #define TOPONODE_H
 
+#include "MetadataHolder.h"
 #include <gp_Pnt.hxx>
-#include <map>
-#include <string>
 
 // Forward declaration
 struct TopoHalfEdge;
 
-class TopoNode {
+class TopoNode : public MetadataHolder {
 public:
   enum class NodeFreedom {
     LOCKED,        // Pinned to GeoNode
@@ -36,14 +35,8 @@ public:
   double getU() const;
   double getV() const;
 
-  // Legacy/Compatibility Constraint Setters (Mapping to new system)
   void setConstraintTargetID(const std::string &targetID);
   std::string getConstraintTargetID() const;
-
-  // Metadata
-  void setMetadata(const std::string &key, const std::string &value);
-  std::string getMetadata(const std::string &key) const;
-  bool hasMetadata(const std::string &key) const;
 
 private:
   int _id;
@@ -54,8 +47,6 @@ private:
   NodeFreedom _freedom;
   std::string _constraintTargetID; // ID of the geometry element
   double _u, _v;                   // Normalized coordinates
-
-  std::map<std::string, std::string> _metadata;
 };
 
 #endif // TOPONODE_H

@@ -284,11 +284,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
               auto *he = face->getBoundary();
               if (he) {
                 auto *startHe = he;
+                int safety = 0;
                 do {
                   if (he->origin) {
                     newNodeIds.append(he->origin->getID());
                   }
                   he = he->next;
+                  if (++safety > Topology::kHalfEdgeLoopLimit) {
+                    qDebug() << "MainWindow: Safety break in "
+                                "topologyNodesMerged for face"
+                             << fid;
+                    break;
+                  }
                 } while (he && he != startHe);
               }
               if (!newNodeIds.isEmpty()) {
@@ -336,7 +343,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(qShortcut, &QShortcut::activated, [this]() {
     qDebug() << "MainWindow: Q Shortcut (Vertex/Nodes)";
     m_occView->setFocus();
-    if (m_occView->interactionMode() == OccView::Mode_Geometry) {
+    if (m_occView->getInteractionMode() == OccView::Mode_Geometry) {
       m_occView->setSelectionMode(1);
     } else {
       m_occView->setTopologySelectionMode(OccView::SelNodes);
@@ -347,7 +354,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(wShortcut, &QShortcut::activated, [this]() {
     qDebug() << "MainWindow: W Shortcut (Edge/Edges)";
     m_occView->setFocus();
-    if (m_occView->interactionMode() == OccView::Mode_Geometry) {
+    if (m_occView->getInteractionMode() == OccView::Mode_Geometry) {
       m_occView->setSelectionMode(2);
     } else {
       m_occView->setTopologySelectionMode(OccView::SelEdges);
@@ -358,7 +365,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(eShortcut, &QShortcut::activated, [this]() {
     qDebug() << "MainWindow: E Shortcut (Face/Faces)";
     m_occView->setFocus();
-    if (m_occView->interactionMode() == OccView::Mode_Geometry) {
+    if (m_occView->getInteractionMode() == OccView::Mode_Geometry) {
       m_occView->setSelectionMode(4);
     } else {
       m_occView->setTopologySelectionMode(OccView::SelFaces);
@@ -821,10 +828,17 @@ void MainWindow::restoreTopologyToView() {
     auto *he = face->getBoundary();
     if (he) {
       auto *start = he;
+      int safety = 0;
       do {
         if (he->origin)
           nodeIds.append(he->origin->getID());
         he = he->next;
+        if (++safety > Topology::kHalfEdgeLoopLimit) {
+          qDebug() << "MainWindow: Safety break in restoreTopologyToView "
+                      "(Step 3) for face"
+                   << id;
+          break;
+        }
       } while (he && he != start);
     }
     if (!nodeIds.isEmpty()) {
@@ -847,9 +861,16 @@ void MainWindow::restoreTopologyToView() {
     auto *he = face->getBoundary();
     if (he) {
       auto *start = he;
+      int safety = 0;
       do {
         nodeIds.append(he->origin->getID());
         he = he->next;
+        if (++safety > Topology::kHalfEdgeLoopLimit) {
+          qDebug() << "MainWindow: Safety break in restoreTopologyToView "
+                      "(Step 4) for face"
+                   << id;
+          break;
+        }
       } while (he && he != start);
     }
     m_topologyPage->onFaceCreated(id, nodeIds);

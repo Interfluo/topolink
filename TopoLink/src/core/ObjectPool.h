@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 template <typename T, size_t BlockSize = 4096> class ObjectPool {
@@ -16,9 +17,24 @@ public:
   ~ObjectPool() { clear(); }
 
   void clear() {
-    // Note: This does NOT call destructors for allocated objects!
-    // It should only be used when the entire pool is being discarded
-    // and we know the objects don't need explicit cleanup.
+    // Identify free slots for fast lookup
+    std::unordered_set<T *> freeSet(_freeList.begin(), _freeList.end());
+
+    size_t count = BlockSize / sizeof(T);
+    if (count == 0)
+      count = 1;
+
+    // Walk all blocks and destruct live (non-free) objects
+    for (auto &block : _blocks) {
+      char *start = block.get();
+      for (size_t i = 0; i < count; ++i) {
+        T *ptr = reinterpret_cast<T *>(start + i * sizeof(T));
+        if (freeSet.find(ptr) == freeSet.end()) {
+          ptr->~T();
+        }
+      }
+    }
+
     _blocks.clear();
     _freeList.clear();
   }

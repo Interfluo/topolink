@@ -31,6 +31,8 @@ struct TopoFaceGroup {
 
 class Topology {
 public:
+  static constexpr int kHalfEdgeLoopLimit = 1000;
+
   Topology();
   ~Topology();
 
@@ -45,7 +47,7 @@ public:
   void deleteNode(int id);
   bool mergeNodes(int keepId, int removeId);
   void updateNodePosition(int id, const gp_Pnt &pos);
-  const std::map<int, TopoNode *> &getNodes() const; // Changed to raw ptr
+  const std::map<int, TopoNode *> &getNodes() const;
 
   // Edge Management
   TopoEdge *createEdge(TopoNode *start, TopoNode *end);
@@ -55,7 +57,7 @@ public:
   TopoEdge *getEdge(int n1Id, int n2Id) const;
   void deleteEdge(int id);
   void rebuildEdgeLookup();
-  const std::map<int, TopoEdge *> &getEdges() const; // Changed to raw ptr
+  const std::map<int, TopoEdge *> &getEdges() const;
 
   // Edge Dimensions
   std::set<int> getUniqueEdgeSubdivisions() const;
@@ -68,12 +70,13 @@ public:
   TopoFace *getFace(int id) const;
   void deleteFace(int id);
   void rebuildFaceHalfEdges(int faceId);
-  const std::map<int, TopoFace *> &getFaces() const; // Changed to raw ptr
+  const std::map<int, TopoFace *> &getFaces() const;
 
-  // Half-Edge Internal Management (New)
+  // Half-Edge Internal Management
   TopoHalfEdge *createHalfEdge();
   void deleteHalfEdge(TopoHalfEdge *he);
-  // Dimension Chord Management (New)
+
+  // Dimension Chord Management
   DimensionChord *createChord(int segments);
   void deleteChord(DimensionChord *chord);
 
@@ -89,6 +92,12 @@ private:
   int _nextId;
   int generateID();
 
+  // Half-Edge Helpers
+  void resetHalfEdgeLoop(TopoHalfEdge *start);
+  std::vector<TopoHalfEdge *> buildHalfEdgeLoop(
+      TopoFace *face, const std::vector<TopoEdge *> &edges);
+  void removeEdgeFromChord(TopoEdge *edge);
+
   // Primary Storage (Owning Pools)
   ObjectPool<TopoNode> _nodePool;
   ObjectPool<TopoEdge> _edgePool;
@@ -100,7 +109,7 @@ private:
   std::map<int, TopoNode *> _nodes;
   std::map<int, TopoEdge *> _edges;
   std::map<int, TopoFace *> _faces;
-  std::map<std::pair<int, int>, TopoEdge *> _edgeLookup; // Optimized lookup
+  std::map<std::pair<int, int>, TopoEdge *> _edgeLookup;
 
   std::map<int, std::unique_ptr<TopoEdgeGroup>> _edgeGroups;
   std::map<int, std::unique_ptr<TopoFaceGroup>> _faceGroups;

@@ -24,19 +24,3 @@ void TopoFace::removeEdge(TopoEdge *edge) {
 TopoHalfEdge *TopoFace::getBoundary() const { return _boundary; }
 
 void TopoFace::setBoundary(TopoHalfEdge *he) { _boundary = he; }
-
-void TopoFace::setMetadata(const std::string &key, const std::string &value) {
-  _metadata[key] = value;
-}
-
-std::string TopoFace::getMetadata(const std::string &key) const {
-  auto it = _metadata.find(key);
-  if (it != _metadata.end()) {
-    return it->second;
-  }
-  return "";
-}
-
-bool TopoFace::hasMetadata(const std::string &key) const {
-  return _metadata.find(key) != _metadata.end();
-}

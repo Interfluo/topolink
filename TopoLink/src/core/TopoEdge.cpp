@@ -4,8 +4,7 @@
 
 TopoEdge::TopoEdge(int id, TopoNode *start, TopoNode *end)
     : _id(id), _start(start), _end(end), _he1(nullptr), _he2(nullptr),
-      _parallelNext(nullptr), _parallelPrev(nullptr), _chord(nullptr),
-      _subdivisions(11) {}
+      _chord(nullptr), _subdivisions(11) {}
 
 TopoEdge::~TopoEdge() {}
 
@@ -45,27 +44,6 @@ void TopoEdge::setHalfEdges(TopoHalfEdge *he1, TopoHalfEdge *he2) {
   }
 }
 
-TopoEdge *TopoEdge::getParallelNext() const { return _parallelNext; }
-TopoEdge *TopoEdge::getParallelPrev() const { return _parallelPrev; }
-
-void TopoEdge::setParallelNext(TopoEdge *next) { _parallelNext = next; }
-void TopoEdge::setParallelPrev(TopoEdge *prev) { _parallelPrev = prev; }
-
 DimensionChord *TopoEdge::getChord() const { return _chord; }
 void TopoEdge::setChord(DimensionChord *chord) { _chord = chord; }
 
-void TopoEdge::setMetadata(const std::string &key, const std::string &value) {
-  _metadata[key] = value;
-}
-
-std::string TopoEdge::getMetadata(const std::string &key) const {
-  auto it = _metadata.find(key);
-  if (it != _metadata.end()) {
-    return it->second;
-  }
-  return "";
-}
-
-bool TopoEdge::hasMetadata(const std::string &key) const {
-  return _metadata.find(key) != _metadata.end();
-}
