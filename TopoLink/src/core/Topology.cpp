@@ -466,6 +466,52 @@ void Topology::setSubdivisionsForEdges(const std::vector<int> &edgeIDs,
   }
 }
 
+void Topology::propagateSubdivisions(int edgeId, int subdivisions) {
+  TopoEdge *startEdge = getEdge(edgeId);
+  if (!startEdge)
+    return;
+
+  std::unordered_set<int> visited;
+  std::vector<int> queue;
+  queue.push_back(edgeId);
+  visited.insert(edgeId);
+
+  size_t head = 0;
+  while (head < queue.size()) {
+    int currId = queue[head++];
+    TopoEdge *currEdge = getEdge(currId);
+    if (!currEdge)
+      continue;
+
+    currEdge->setSubdivisions(subdivisions);
+
+    // Find "parallel" edges via adjacent faces
+    std::vector<TopoHalfEdge *> hes = {currEdge->getForwardHalfEdge(),
+                                       currEdge->getBackwardHalfEdge()};
+
+    for (TopoHalfEdge *he : hes) {
+      if (!he || !he->face)
+        continue;
+
+      // Only propagate through QUAD faces
+      auto faceEdges = he->face->getEdges();
+      if (faceEdges.size() == 4) {
+        // Find the opposite edge in the quad
+        TopoHalfEdge *curr = he;
+        // next -> next is the opposite half-edge in a quad
+        if (curr->next && curr->next->next) {
+          TopoEdge *oppositeEdge = curr->next->next->parentEdge;
+          if (oppositeEdge &&
+              visited.find(oppositeEdge->getID()) == visited.end()) {
+            visited.insert(oppositeEdge->getID());
+            queue.push_back(oppositeEdge->getID());
+          }
+        }
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Face Management
 // ---------------------------------------------------------------------------

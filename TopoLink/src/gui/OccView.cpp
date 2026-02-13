@@ -1648,6 +1648,53 @@ void OccView::wheelEvent(QWheelEvent *event) {
   m_view->Redraw();
 }
 
+void OccView::contextMenuEvent(QContextMenuEvent *event) {
+  if (m_context.IsNull() || m_interactionMode != Mode_Topology) {
+    return;
+  }
+
+  // Detect object under cursor
+  m_context->MoveTo(event->x(), event->y(), m_view, Standard_True);
+  if (!m_context->HasDetected()) {
+    return;
+  }
+
+  Handle(AIS_InteractiveObject) detectedObj = m_context->DetectedInteractive();
+  QPair<int, int> edgeNodes = qMakePair(-1, -1);
+  int edgeId = -1;
+
+  for (auto it = m_topologyEdges.begin(); it != m_topologyEdges.end(); ++it) {
+    if (it.value() == detectedObj) {
+      edgeNodes = it.key();
+      edgeId = m_nodePairToEdgeIdMap.value(edgeNodes, -1);
+      break;
+    }
+  }
+
+  if (edgeId != -1) {
+    QMenu menu(this);
+    QAction *setSubdivs = menu.addAction(tr("Set Subdivisions..."));
+
+    QAction *selectedAction = menu.exec(event->globalPos());
+    if (selectedAction == setSubdivs) {
+      TopoEdge *edge = m_topologyModel->getEdge(edgeId);
+      if (edge) {
+        bool ok;
+        int current = edge->getSubdivisions();
+        int newVal = QInputDialog::getInt(this, tr("Set Subdivisions"),
+                                          tr("Number of subdivisions:"),
+                                          current, 2, 1000, 1, &ok);
+        if (ok) {
+          m_topologyModel->propagateSubdivisions(edgeId, newVal);
+          m_view->Redraw();
+          qDebug() << "Propagated subdivisions" << newVal << "from edge"
+                   << edgeId;
+        }
+      }
+    }
+  }
+}
+
 void OccView::createHUD() {
   if (m_hudWidget)
     return;
@@ -1793,7 +1840,10 @@ void OccView::setWorkbench(int index) {
 
   // ENSURE selection state is synchronized with interaction mode
   setInteractionMode(m_interactionMode);
-  hideSmootherVisualization();
+
+  if (index != 2) {
+    hideSmootherVisualization();
+  }
 
   if (!m_context.IsNull()) {
     m_context->UpdateCurrentViewer();
@@ -2557,6 +2607,10 @@ void OccView::updateSmootherVisualization() {
   for (auto const &[id, face] : faces) {
     qDebug() << "OccView: Face ID:" << id;
     createTfiMesh(id);
+  }
+
+  if (m_view) {
+    m_view->Redraw();
   }
   qDebug() << "OccView: updateSmootherVisualization done.";
 }

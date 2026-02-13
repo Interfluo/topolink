@@ -1,11 +1,14 @@
 #pragma once
 
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QList>
 #include <QMap>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QObject>
 #include <QPair>
@@ -185,6 +188,7 @@ protected:
   void mouseReleaseEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void wheelEvent(QWheelEvent *event) override;
+  void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
   Handle(V3d_View) m_view;

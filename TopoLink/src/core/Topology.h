@@ -63,6 +63,7 @@ public:
   std::set<int> getUniqueEdgeSubdivisions() const;
   void setSubdivisionsForEdges(const std::vector<int> &edgeIDs,
                                int subdivisions);
+  void propagateSubdivisions(int edgeId, int subdivisions);
 
   // Face Management
   TopoFace *createFace(const std::vector<TopoEdge *> &edges);
@@ -94,8 +95,8 @@ private:
 
   // Half-Edge Helpers
   void resetHalfEdgeLoop(TopoHalfEdge *start);
-  std::vector<TopoHalfEdge *> buildHalfEdgeLoop(
-      TopoFace *face, const std::vector<TopoEdge *> &edges);
+  std::vector<TopoHalfEdge *>
+  buildHalfEdgeLoop(TopoFace *face, const std::vector<TopoEdge *> &edges);
   void removeEdgeFromChord(TopoEdge *edge);
 
   // Primary Storage (Owning Pools)
