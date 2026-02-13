@@ -84,6 +84,11 @@
 #include <QSet>
 #include <TColgp_Array1OfPnt.hxx>
 
+#include <BRepAdaptor_Curve.hxx>
+#include <BRep_Builder.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
+#include <TopoDS_Compound.hxx>
+
 OccView::OccView(QWidget *parent)
     : QWidget(parent), myXmin(0), myYmin(0), myXmax(0), myYmax(0), myCurX(0),
       myCurY(0), m_interactionMode(Mode_Geometry), m_nextNodeId(1),
@@ -2863,88 +2868,197 @@ void OccView::createTfiMesh(int faceId) {
 }
 
 void OccView::runEllipticSolver(const SmootherConfig &config) {
-  if (!m_topologyModel || m_context.IsNull())
-    return;
+  if (!m_topologyModel || m_context.IsNull()) {
+      qDebug() << "OccView::runEllipticSolver: Model or Context is null";
+      return;
+  }
 
+  qDebug() << "OccView::runEllipticSolver: Starting solver...";
   hideSmootherVisualization();
 
+  // --- Helper 1: Build a single Shape from a list of IDs ---
+  auto buildTargetShape = [&](const QList<int>& ids, bool isEdge) -> TopoDS_Shape {
+      if (ids.isEmpty()) return TopoDS_Shape();
+      
+      TopoDS_Compound comp;
+      BRep_Builder B;
+      B.MakeCompound(comp);
+      bool added = false;
+      
+      const auto* map = isEdge ? m_edgeMap : m_faceMap;
+      if (!map) return TopoDS_Shape();
+
+      for (int id : ids) {
+          if (id > 0 && id <= map->Extent()) {
+              B.Add(comp, map->FindKey(id));
+              added = true;
+          }
+      }
+      return added ? comp : TopoDS_Shape();
+  };
+
+  // --- Helper 2: Project point to a shape (Wire or Shell) ---
+  auto projectToShape = [&](const gp_Pnt& p, const TopoDS_Shape& s) -> gp_Pnt {
+      if (s.IsNull()) return p;
+      // Note: Precision set to 1e-3, infinite range
+      BRepExtrema_DistShapeShape extrema(BRepBuilderAPI_MakeVertex(p).Vertex(), s);
+      if (extrema.IsDone() && extrema.NbSolution() > 0) {
+          // Find closest solution
+          // BRepExtrema sorts solutions by distance, so index 1 is closest
+          return extrema.PointOnShape2(1);
+      }
+      return p;
+  };
+
   const auto &faces = m_topologyModel->getFaces();
+  qDebug() << "OccView::runEllipticSolver: Processing" << faces.size() << "faces.";
+
   for (auto const &[faceId, face] : faces) {
     // 1. Get ordered half-edges
     std::vector<TopoHalfEdge *> loop;
     TopoHalfEdge *startHe = face->getBoundary();
-    if (!startHe)
-      continue;
+    if (!startHe) {
+        qDebug() << "  Face" << faceId << "has no boundary.";
+        continue;
+    }
+
     TopoHalfEdge *current = startHe;
+    int safety = 0;
     do {
       loop.push_back(current);
       current = current->next;
-    } while (current != startHe && current != nullptr && loop.size() < 100);
+      safety++;
+    } while (current != startHe && current != nullptr && safety < 100);
 
-    if (loop.size() != 4)
-      continue;
+    if (loop.size() != 4) {
+        qDebug() << "  Face" << faceId << "is not a Quad (Loop size:" << loop.size() << "). Skipping.";
+        continue;
+    }
 
-    // 2. Extract corners and subdivisions
-    gp_Pnt c0 = loop[0]->origin->getPosition();
-    gp_Pnt c1 = loop[1]->origin->getPosition();
-    gp_Pnt c2 = loop[2]->origin->getPosition();
-    gp_Pnt c3 = loop[3]->origin->getPosition();
+    // 2. Identify Surface Constraint
+    TopoDS_Shape surfaceConstraint;
+    NodeConstraint nc0 = getNodeConstraint(loop[0]->origin->getID());
+    
+    // Check if constraint is generic geometry (not specifically an edge group)
+    if (nc0.type == ConstraintGeometry && !nc0.isEdgeGroup) {
+        surfaceConstraint = buildTargetShape(nc0.geometryIds, false);
+        qDebug() << "  Face" << faceId << "constrained to" << nc0.geometryIds.size() << "CAD faces.";
+    }
 
+    // 3. Discretize Boundaries
+    std::vector<std::vector<gp_Pnt>> boundaries(4);
+    
+    for(int k=0; k<4; ++k) {
+        TopoEdge* edge = loop[k]->parentEdge;
+        TopoNode* nStart = loop[k]->origin;
+        TopoNode* nEnd = loop[(k+1)%4]->origin; 
+
+        int segments = edge->getSubdivisions();
+        if(segments < 1) segments = 1;
+        boundaries[k].resize(segments + 1);
+
+        // Detect Edge Constraint
+        TopoDS_Shape edgeConstraint;
+        NodeConstraint c1 = getNodeConstraint(nStart->getID());
+        NodeConstraint c2 = getNodeConstraint(nEnd->getID());
+        
+        if (c1.type == ConstraintGeometry && c1.isEdgeGroup && 
+            c2.type == ConstraintGeometry && c2.isEdgeGroup &&
+            c1.geometryIds == c2.geometryIds) {
+            edgeConstraint = buildTargetShape(c1.geometryIds, true);
+        }
+
+        // Generate Points
+        gp_Pnt pStart = nStart->getPosition();
+        gp_Pnt pEnd = nEnd->getPosition();
+        
+        for(int i=0; i <= segments; ++i) {
+            double t = (double)i / segments;
+            gp_XYZ xyz = pStart.XYZ() * (1.0 - t) + pEnd.XYZ() * t;
+            gp_Pnt pLin(xyz);
+            
+            if (!edgeConstraint.IsNull()) {
+                boundaries[k][i] = projectToShape(pLin, edgeConstraint);
+            } else if (!surfaceConstraint.IsNull()) {
+                boundaries[k][i] = projectToShape(pLin, surfaceConstraint);
+            } else {
+                boundaries[k][i] = pLin;
+            }
+        }
+    }
+
+    // 4. Initialize Grid (TFI)
     int M = loop[0]->parentEdge->getSubdivisions();
     int N = loop[1]->parentEdge->getSubdivisions();
-    if (M < 1)
-      M = 1;
-    if (N < 1)
-      N = 1;
+    if(M < 1) M=1;
+    if(N < 1) N=1;
 
-    // 3. Initialize Grid with TFI
     std::vector<std::vector<gp_Pnt>> grid(M + 1, std::vector<gp_Pnt>(N + 1));
-    std::vector<std::vector<bool>> isFixed(M + 1,
-                                           std::vector<bool>(N + 1, false));
-
-    auto getTfiPoint = [&](double u, double v) {
-      gp_Pnt s0_u = gp_Pnt(c0.XYZ() * (1.0 - u) + c1.XYZ() * u);
-      gp_Pnt s2_u = gp_Pnt(c3.XYZ() * (1.0 - u) + c2.XYZ() * u);
-      gp_Pnt s3_v = gp_Pnt(c0.XYZ() * (1.0 - v) + c3.XYZ() * v);
-      gp_Pnt s1_v = gp_Pnt(c1.XYZ() * (1.0 - v) + c2.XYZ() * v);
-
-      gp_XYZ p_uv =
-          (s0_u.XYZ() * (1.0 - v) + s2_u.XYZ() * v + s3_v.XYZ() * (1.0 - u) +
-           s1_v.XYZ() * u) -
-          (c0.XYZ() * (1.0 - u) * (1.0 - v) + c1.XYZ() * u * (1.0 - v) +
-           c2.XYZ() * u * v + c3.XYZ() * (1.0 - u) * v);
-      return gp_Pnt(p_uv);
-    };
+    std::vector<std::vector<bool>> isFixed(M + 1, std::vector<bool>(N + 1, false));
 
     for (int i = 0; i <= M; ++i) {
       for (int j = 0; j <= N; ++j) {
-        grid[i][j] = getTfiPoint((double)i / M, (double)j / N);
+        double u = (double)i / M;
+        double v = (double)j / N;
+
+        gp_XYZ pBottom = boundaries[0][i].XYZ();
+        gp_XYZ pRight  = boundaries[1][j].XYZ();
+        gp_XYZ pTop    = boundaries[2][M-i].XYZ(); 
+        gp_XYZ pLeft   = boundaries[3][N-j].XYZ();
+
+        gp_XYZ cSW = boundaries[0][0].XYZ();
+        gp_XYZ cSE = boundaries[0][M].XYZ();
+        gp_XYZ cNE = boundaries[2][0].XYZ();
+        gp_XYZ cNW = boundaries[2][M].XYZ();
+
+        gp_XYZ pTFI = (1.0-v)*pBottom + v*pTop + (1.0-u)*pLeft + u*pRight
+                    - ( (1.0-u)*(1.0-v)*cSW
+                      + u*(1.0-v)*cSE
+                      + u*v*cNE
+                      + (1.0-u)*v*cNW );
+        
+        grid[i][j] = gp_Pnt(pTFI);
+
+        // Project interior points
+        if (!surfaceConstraint.IsNull()) {
+            if (i > 0 && i < M && j > 0 && j < N) {
+                grid[i][j] = projectToShape(grid[i][j], surfaceConstraint);
+            }
+        }
+
         if (i == 0 || i == M || j == 0 || j == N) {
           isFixed[i][j] = true;
         }
       }
     }
 
-    // 4. Smooth Grid
+    // 5. Smooth with Projection
     EllipticSolver::Params params;
     params.iterations = config.faceIters;
     params.relaxation = config.faceRelax;
     params.bcRelaxation = config.faceBCRelax;
+    
+    auto constraintFunc = [&](int i, int j, const gp_Pnt& p) -> gp_Pnt {
+        if (i == 0 || i == M || j == 0 || j == N) return p;
+        return projectToShape(p, surfaceConstraint);
+    };
 
-    EllipticSolver::smoothGrid(grid, isFixed, params);
+    EllipticSolver::smoothGrid(grid, isFixed, params, constraintFunc);
 
-    // 5. Visualize Results
+    // 6. Visualization
     int nbNodes = (M + 1) * (N + 1);
     int nbTriangles = 2 * M * N;
     Handle(Poly_Triangulation) triangulation =
         new Poly_Triangulation(nbNodes, nbTriangles, Standard_False);
 
+    // Fill Nodes
     for (int j = 0; j <= N; ++j) {
       for (int i = 0; i <= M; ++i) {
         triangulation->SetNode(j * (M + 1) + i + 1, grid[i][j]);
       }
     }
 
+    // Fill Triangles
     int triIdx = 1;
     for (int j = 0; j < N; ++j) {
       for (int i = 0; i < M; ++i) {
@@ -2957,43 +3071,51 @@ void OccView::runEllipticSolver(const SmootherConfig &config) {
       }
     }
 
-    Handle(AIS_Triangulation) aisMesh = new AIS_Triangulation(triangulation);
+    // --- Create Shaded Mesh Visualization ---
+    TopoDS_Face visFace;
+    BRep_Builder B;
+    B.MakeFace(visFace); // Create empty face
+    B.UpdateFace(visFace, triangulation); // Assign triangulation
+    
+    Handle(AIS_ColoredShape) aisMesh = new AIS_ColoredShape(visFace);
     aisMesh->SetColor(Quantity_NOC_WHITE);
-    m_context->Display(aisMesh, Standard_False);
+    // Mode 1 is Shaded. This ensures it's filled, not just wireframe.
+    m_context->Display(aisMesh, 1, -1, Standard_False);
     m_smootherObjects.append(aisMesh);
 
-    // Grid lines (Blue)
-    Quantity_Color blue(Quantity_NOC_BLUE);
+    // --- Overlay Grid Lines (Blue) ---
+    Quantity_Color gridColor(Quantity_NOC_BLUE1);
+    
+    // Vertical Lines
     for (int i = 0; i <= M; ++i) {
-      for (int j = 0; j < N; ++j) {
-        gp_Pnt p1 = grid[i][j];
-        gp_Pnt p2 = grid[i][j + 1];
-        if (p1.SquareDistance(p2) < 1e-7)
-          continue;
-        Handle(AIS_Line) aisLine = new AIS_Line(new Geom_CartesianPoint(p1),
-                                                new Geom_CartesianPoint(p2));
-        aisLine->SetColor(blue);
-        aisLine->SetWidth(1.0);
-        m_context->Display(aisLine, Standard_False);
-        m_smootherObjects.append(aisLine);
-      }
+        for (int j = 0; j < N; ++j) {
+            gp_Pnt p1 = grid[i][j];
+            gp_Pnt p2 = grid[i][j+1];
+            if (p1.SquareDistance(p2) > 1e-10) {
+                 Handle(AIS_Line) line = new AIS_Line(new Geom_CartesianPoint(p1), new Geom_CartesianPoint(p2));
+                 line->SetColor(gridColor);
+                 m_context->Display(line, Standard_False);
+                 m_smootherObjects.append(line);
+            }
+        }
     }
+    // Horizontal Lines
     for (int j = 0; j <= N; ++j) {
-      for (int i = 0; i < M; ++i) {
-        gp_Pnt p1 = grid[i][j];
-        gp_Pnt p2 = grid[i + 1][j];
-        if (p1.SquareDistance(p2) < 1e-7)
-          continue;
-        Handle(AIS_Line) aisLine = new AIS_Line(new Geom_CartesianPoint(p1),
-                                                new Geom_CartesianPoint(p2));
-        aisLine->SetColor(blue);
-        aisLine->SetWidth(1.0);
-        m_context->Display(aisLine, Standard_False);
-        m_smootherObjects.append(aisLine);
-      }
+        for (int i = 0; i < M; ++i) {
+            gp_Pnt p1 = grid[i][j];
+            gp_Pnt p2 = grid[i+1][j];
+            if (p1.SquareDistance(p2) > 1e-10) {
+                 Handle(AIS_Line) line = new AIS_Line(new Geom_CartesianPoint(p1), new Geom_CartesianPoint(p2));
+                 line->SetColor(gridColor);
+                 m_context->Display(line, Standard_False);
+                 m_smootherObjects.append(line);
+            }
+        }
     }
   }
 
-  if (m_view)
-    m_view->Redraw();
+  if (m_view) {
+      m_view->Redraw();
+  }
+  qDebug() << "OccView::runEllipticSolver: Finished.";
 }
