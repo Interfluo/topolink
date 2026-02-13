@@ -1,0 +1,63 @@
+# Build artifacts
+build/
+bin/
+lib/
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.ninja
+.ninja_deps
+.ninja_log
+install_manifest.txt
+compile_commands.json
+
+# macOS metadata
+._*
+.DS_Store
+*.dSYM/
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+.vs/
+*.sln
+*.vcxproj
+*.user
+*.suo
+
+# Compiled
+*.o
+*.obj
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Python
+.venv/
+env/
+venv/
+ENV/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# App Specific
+MeshingApp
+render_config.json.user
