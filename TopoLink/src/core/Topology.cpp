@@ -52,26 +52,37 @@ Topology::buildHalfEdgeLoop(TopoFace *face,
     TopoNode *nextN1 = nextEdge->getStartNode();
     TopoNode *nextN2 = nextEdge->getEndNode();
 
+    int n1Id = n1->getID();
+    int n2Id = n2->getID();
+    int nextN1Id = nextN1->getID();
+    int nextN2Id = nextN2->getID();
+
     TopoNode *common = nullptr;
-    if (n2 == nextN1 || n2 == nextN2) {
+    if (n2Id == nextN1Id || n2Id == nextN2Id) {
       common = n2;
-    } else if (n1 == nextN1 || n1 == nextN2) {
+    } else if (n1Id == nextN1Id || n1Id == nextN2Id) {
       common = n1;
     } else {
-      qDebug() << "Topology Error: Disconnected edges in face creation at index" << i;
-      continue; 
+      qDebug() << "Topology Error: Disconnected edges in face creation at index"
+               << i << "(Nodes" << n1Id << "-" << n2Id << "vs" << nextN1Id
+               << "-" << nextN2Id << ")";
+      continue;
     }
 
     TopoHalfEdge *he = (common == n2) ? currEdge->getForwardHalfEdge()
                                       : currEdge->getBackwardHalfEdge();
-    if (!he) continue;
+    if (!he)
+      continue;
 
     // --- FIX STARTS HERE ---
+    // Instead of checking if the edge is used at all, check if THIS specific
+    // half-edge direction is already taken by another face.
     if (he->face && he->face != face) {
-      qDebug() << "Topology Error: Half-edge theft detected. Edge" << currEdge->getID() 
+      qDebug() << "Topology Error: Half-edge direction already owned. Edge"
+               << currEdge->getID() << "Direction"
+               << (common == n2 ? "Forward" : "Backward")
                << "is already owned by Face" << he->face->getID();
-      // Abort to prevent corruption of the existing face
-      return {}; 
+      return {};
     }
     // --- FIX ENDS HERE ---
 
@@ -91,18 +102,20 @@ Topology::buildHalfEdgeLoop(TopoFace *face,
       loopHEs.push_back(he);
     } else {
       qDebug() << "Topology Warning: Duplicate half-edge in loop.";
-      break; 
+      break;
     }
   }
 
   // --- VALIDATION FIX ---
   if (loopHEs.size() != edges.size()) {
-      qDebug() << "Topology Error: Failed to build complete loop. Edges may be unordered or disconnected.";
-      // Cleanup partially assigned faces to prevent dangling pointers
-      for (auto* he : loopHEs) {
-          if (he->face == face) he->face = nullptr;
-      }
-      return {};
+    qDebug() << "Topology Error: Failed to build complete loop. Edges may be "
+                "unordered or disconnected.";
+    // Cleanup partially assigned faces to prevent dangling pointers
+    for (auto *he : loopHEs) {
+      if (he->face == face)
+        he->face = nullptr;
+    }
+    return {};
   }
 
   // Link next/prev
@@ -138,6 +151,12 @@ TopoNode *Topology::createNode(const gp_Pnt &position) {
 }
 
 TopoNode *Topology::createNodeWithID(int id, const gp_Pnt &position) {
+  auto it = _nodes.find(id);
+  if (it != _nodes.end()) {
+    it->second->setPosition(position);
+    return it->second;
+  }
+
   TopoNode *node = _nodePool.allocate(id, position);
   _nodes[id] = node;
   if (id >= _nextId)
@@ -360,6 +379,14 @@ TopoEdge *Topology::createEdge(TopoNode *start, TopoNode *end) {
 TopoEdge *Topology::createEdgeWithID(int id, TopoNode *start, TopoNode *end) {
   if (!start || !end)
     return nullptr;
+
+  auto it = _edges.find(id);
+  if (it != _edges.end()) {
+    // Edge exists, verify/update nodes if possible, but typically IDs are
+    // stable. For now, just return existing to maintain idempotency.
+    return it->second;
+  }
+
   TopoEdge *edge = _edgePool.allocate(id, start, end);
   _edges[id] = edge;
 
