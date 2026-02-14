@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "ProjectManager.h"
+#include "pages/ConvergencePlot.h"
 #include <QAction>
 #include <QCoreApplication>
 #include <QDir>
@@ -126,6 +127,31 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   connect(m_smootherPage, &SmootherPage::runSolverRequested, this,
           &MainWindow::onRunSolver);
+
+  // Smoother Plotting Connections
+  connect(
+      m_occView, &OccView::smootherIterationReported, this,
+      [this](int id, int iter, double error) {
+        if (m_smootherPage) {
+          if (m_smootherPage->plot())
+            m_smootherPage->plot()->addPoint(id, iter, error);
+
+          QString msg =
+              (id < 0)
+                  ? QString("Smoothing Edge %1 (it %2)").arg(-id).arg(iter + 1)
+                  : QString("Smoothing Face %1 (it %2)").arg(id).arg(iter + 1);
+          m_smootherPage->setStatusText(msg);
+        }
+      });
+
+  connect(m_occView, &OccView::smootherFinished, this, [this]() {
+    if (m_smootherPage) {
+      if (m_smootherPage->runButton())
+        m_smootherPage->runButton()->setEnabled(true);
+      m_smootherPage->setStatusText("");
+    }
+    logMessage("Smoothing complete.");
+  });
 
   // Initial Update - Defer until end of constructor
 
@@ -950,8 +976,12 @@ void MainWindow::onRunSolver() {
       }
     }
 
+    if (m_smootherPage->plot())
+      m_smootherPage->plot()->clear();
+    if (m_smootherPage->runButton())
+      m_smootherPage->runButton()->setEnabled(false);
+
     logMessage("Running elliptic grid smoother...");
     m_occView->runEllipticSolver(m_smootherPage->getConfig());
-    logMessage("Smoothing complete.");
   }
 }

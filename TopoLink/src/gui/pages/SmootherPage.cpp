@@ -1,15 +1,26 @@
 #include "SmootherPage.h"
+#include "ConvergencePlot.h"
 #include <QPushButton>
 
 SmootherPage::SmootherPage(QWidget *parent) : QWidget(parent) { setupUI(); }
+
+void SmootherPage::setStatusText(const QString &text) {
+  if (m_statusLabel)
+    m_statusLabel->setText(text);
+}
 
 void SmootherPage::setupUI() {
   QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
   QLabel *header = new QLabel("Solver Configuration");
   header->setStyleSheet(
-      "font-weight: bold; font-size: 16px; margin-bottom: 10px;");
+      "font-weight: bold; font-size: 16px; margin-bottom: 2px;");
   mainLayout->addWidget(header);
+
+  m_statusLabel = new QLabel("");
+  m_statusLabel->setStyleSheet("color: #0078d7; font-weight: bold;");
+  m_statusLabel->setAlignment(Qt::AlignCenter);
+  mainLayout->addWidget(m_statusLabel);
 
   QGroupBox *edgeGroup = new QGroupBox("Edge Solver");
   QFormLayout *edgeLayout = new QFormLayout(edgeGroup);
@@ -68,14 +79,19 @@ void SmootherPage::setupUI() {
   miscLayout->addRow("Proj. Frequency:", m_projFreq);
   mainLayout->addWidget(miscGroup);
 
+  mainLayout->addSpacing(10);
+  m_plot = new ConvergencePlot(this);
+  mainLayout->addWidget(m_plot, 1); // Give plot stretch factor
+
   mainLayout->addStretch();
 
-  QPushButton *runBtn = new QPushButton("Run Solver");
-  runBtn->setStyleSheet("background-color: #0078d7; color: white; font-weight: "
-                        "bold; padding: 10px;");
-  mainLayout->addWidget(runBtn);
+  m_runBtn = new QPushButton("Run Solver");
+  m_runBtn->setStyleSheet(
+      "background-color: #0078d7; color: white; font-weight: "
+      "bold; padding: 10px;");
+  mainLayout->addWidget(m_runBtn);
 
-  connect(runBtn, &QPushButton::clicked, this,
+  connect(m_runBtn, &QPushButton::clicked, this,
           &SmootherPage::runSolverRequested);
 }
 

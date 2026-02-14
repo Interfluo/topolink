@@ -8,6 +8,8 @@
 #include "../core/Topology.h"
 #include "EntityOwner.h"
 #include "pages/SmootherPage.h"
+#include <QFutureWatcher>
+#include <QtConcurrent>
 
 #include <AIS_ColoredShape.hxx>
 #include <AIS_Line.hxx>
@@ -2920,17 +2922,11 @@ void OccView::runEllipticSolver(const SmootherConfig &config) {
   qDebug() << "OccView::runEllipticSolver: Starting smoother...";
   hideSmootherVisualization();
 
-  // 1. Create and Configure Smoother
-  Smoother smoother(m_topologyModel);
-  smoother.setConfig(config);
+  // Create Smoother on heap
+  Smoother *smoother = new Smoother(m_topologyModel);
+  smoother->setConfig(config);
+  smoother->setGeometryMaps(m_faceMap, m_edgeMap);
 
-  // Pass Geometry Maps
-  smoother.setGeometryMaps(m_faceMap, m_edgeMap);
-
-  // Pass Constraints
-  // We need to convert OccView::NodeConstraint to Smoother::Constraint
-  // Since they are identical structures (Enum values match), we can cast or
-  // copy. To be safe and clean, we copy.
   QMap<int, Smoother::Constraint> constraints;
   for (auto it = m_nodeConstraints.begin(); it != m_nodeConstraints.end();
        ++it) {
@@ -2942,116 +2938,106 @@ void OccView::runEllipticSolver(const SmootherConfig &config) {
     sc.origin = oc.origin;
     constraints.insert(it.key(), sc);
   }
-  smoother.setConstraints(constraints);
+  smoother->setConstraints(constraints);
 
-  // 2. Run Smoother
-  smoother.run();
-  smoother.saveConvergenceData("convergence.log");
+  // Connect progress signal
+  connect(smoother, &Smoother::iterationCompleted, this,
+          &OccView::smootherIterationReported);
 
-  // 3. Visualise Results
+  QFutureWatcher<void> *watcher = new QFutureWatcher<void>(this);
+  connect(
+      watcher, &QFutureWatcher<void>::finished, this,
+      [this, smoother, watcher]() {
+        qDebug() << "OccView::runEllipticSolver: Background thread complete.";
 
-  // Visualise Edges
-  const auto &smoothedEdges = smoother.getSmoothedEdges();
-  for (auto it = smoothedEdges.begin(); it != smoothedEdges.end(); ++it) {
-    const auto &se = it.value();
-    if (se.points.size() < 2)
-      continue;
-
-    // Better: Create a BRep Edge (Polygon)
-    BRepBuilderAPI_MakePolygon polyMaker;
-    for (const auto &p : se.points) {
-      polyMaker.Add(p);
-    }
-    if (polyMaker.IsDone()) {
-      TopoDS_Shape edgeShape = polyMaker.Edge();
-      Handle(AIS_ColoredShape) aisShape = new AIS_ColoredShape(edgeShape);
-      aisShape->SetColor(Quantity_NOC_GREEN);
-      m_context->Display(aisShape, Standard_False);
-      m_smootherObjects.append(aisShape);
-    }
-  }
-
-  // Visualise Faces
-  const auto &smoothedFaces = smoother.getSmoothedFaces();
-  for (auto it = smoothedFaces.begin(); it != smoothedFaces.end(); ++it) {
-    const auto &sf = it.value();
-    const auto &grid = sf.grid;
-    int M = grid.size() - 1;
-    if (M < 1)
-      continue;
-    int N = grid[0].size() - 1;
-
-    int nbNodes = (M + 1) * (N + 1);
-    int nbTriangles = 2 * M * N;
-    Handle(Poly_Triangulation) triangulation =
-        new Poly_Triangulation(nbNodes, nbTriangles, Standard_False);
-
-    // Fill Nodes
-    for (int j = 0; j <= N; ++j) {
-      for (int i = 0; i <= M; ++i) {
-        triangulation->SetNode(j * (M + 1) + i + 1, grid[i][j]);
-      }
-    }
-
-    // Fill Triangles
-    int triIdx = 1;
-    for (int j = 0; j < N; ++j) {
-      for (int i = 0; i < M; ++i) {
-        int n1 = j * (M + 1) + i + 1;
-        int n2 = n1 + 1;
-        int n3 = (j + 1) * (M + 1) + i + 1;
-        int n4 = n3 + 1;
-        triangulation->SetTriangle(triIdx++, Poly_Triangle(n1, n2, n4));
-        triangulation->SetTriangle(triIdx++, Poly_Triangle(n1, n4, n3));
-      }
-    }
-
-    // Create Shaded Mesh Visualization
-    TopoDS_Face visFace;
-    BRep_Builder B;
-    B.MakeFace(visFace);
-    B.UpdateFace(visFace, triangulation);
-
-    Handle(AIS_ColoredShape) aisMesh = new AIS_ColoredShape(visFace);
-    aisMesh->SetColor(Quantity_NOC_WHITE);
-    m_context->Display(aisMesh, 1, -1, Standard_False);
-    m_smootherObjects.append(aisMesh);
-
-    // --- Overlay Grid Lines (Blue) ---
-    Quantity_Color gridColor(Quantity_NOC_BLUE1);
-
-    // Vertical Lines
-    for (int i = 0; i <= M; ++i) {
-      for (int j = 0; j < N; ++j) {
-        gp_Pnt p1 = grid[i][j];
-        gp_Pnt p2 = grid[i][j + 1];
-        if (p1.SquareDistance(p2) > 1e-10) {
-          Handle(AIS_Line) line = new AIS_Line(new Geom_CartesianPoint(p1),
-                                               new Geom_CartesianPoint(p2));
-          line->SetColor(gridColor);
-          m_context->Display(line, Standard_False);
-          m_smootherObjects.append(line);
+        // Visualize Results (Must be in main thread)
+        const auto &edges = smoother->getSmoothedEdges();
+        for (auto it = edges.begin(); it != edges.end(); ++it) {
+          const auto &se = it.value();
+          if (se.points.size() < 2)
+            continue;
+          BRepBuilderAPI_MakePolygon polyMaker;
+          for (const auto &p : se.points)
+            polyMaker.Add(p);
+          if (polyMaker.IsDone()) {
+            Handle(AIS_ColoredShape) aisShape =
+                new AIS_ColoredShape(polyMaker.Edge());
+            aisShape->SetColor(Quantity_NOC_GREEN);
+            m_context->Display(aisShape, Standard_False);
+            m_smootherObjects.append(aisShape);
+          }
         }
-      }
-    }
-    // Horizontal Lines
-    for (int j = 0; j <= N; ++j) {
-      for (int i = 0; i < M; ++i) {
-        gp_Pnt p1 = grid[i][j];
-        gp_Pnt p2 = grid[i + 1][j];
-        if (p1.SquareDistance(p2) > 1e-10) {
-          Handle(AIS_Line) line = new AIS_Line(new Geom_CartesianPoint(p1),
-                                               new Geom_CartesianPoint(p2));
-          line->SetColor(gridColor);
-          m_context->Display(line, Standard_False);
-          m_smootherObjects.append(line);
-        }
-      }
-    }
-  }
 
-  if (m_view) {
-    m_view->Redraw();
-  }
-  qDebug() << "OccView::runEllipticSolver: Finished.";
+        const auto &faces = smoother->getSmoothedFaces();
+        for (auto it = faces.begin(); it != faces.end(); ++it) {
+          const auto &sf = it.value();
+          const auto &grid = sf.grid;
+          int M = grid.size() - 1;
+          if (M < 1)
+            continue;
+          int N = grid[0].size() - 1;
+          Handle(Poly_Triangulation) triangulation = new Poly_Triangulation(
+              (M + 1) * (N + 1), 2 * M * N, Standard_False);
+          for (int j = 0; j <= N; ++j) {
+            for (int i = 0; i <= M; ++i)
+              triangulation->SetNode(j * (M + 1) + i + 1, grid[i][j]);
+          }
+          int triIdx = 1;
+          for (int j = 0; j < N; ++j) {
+            for (int i = 0; i < M; ++i) {
+              int n1 = j * (M + 1) + i + 1;
+              int n2 = n1 + 1;
+              int n3 = (j + 1) * (M + 1) + i + 1;
+              int n4 = n3 + 1;
+              triangulation->SetTriangle(triIdx++, Poly_Triangle(n1, n2, n4));
+              triangulation->SetTriangle(triIdx++, Poly_Triangle(n1, n4, n3));
+            }
+          }
+          TopoDS_Face visFace;
+          BRep_Builder B;
+          B.MakeFace(visFace);
+          B.UpdateFace(visFace, triangulation);
+          Handle(AIS_ColoredShape) aisMesh = new AIS_ColoredShape(visFace);
+          aisMesh->SetColor(Quantity_NOC_WHITE);
+          m_context->Display(aisMesh, 1, -1, Standard_False);
+          m_smootherObjects.append(aisMesh);
+
+          Quantity_Color gridColor(Quantity_NOC_BLUE1);
+          for (int i = 0; i <= M; ++i) {
+            for (int j = 0; j < N; ++j) {
+              if (grid[i][j].SquareDistance(grid[i][j + 1]) > 1e-10) {
+                Handle(AIS_Line) line =
+                    new AIS_Line(new Geom_CartesianPoint(grid[i][j]),
+                                 new Geom_CartesianPoint(grid[i][j + 1]));
+                line->SetColor(gridColor);
+                m_context->Display(line, Standard_False);
+                m_smootherObjects.append(line);
+              }
+            }
+          }
+          for (int j = 0; j <= N; ++j) {
+            for (int i = 0; i < M; ++i) {
+              if (grid[i][j].SquareDistance(grid[i + 1][j]) > 1e-10) {
+                Handle(AIS_Line) line =
+                    new AIS_Line(new Geom_CartesianPoint(grid[i][j]),
+                                 new Geom_CartesianPoint(grid[i + 1][j]));
+                line->SetColor(gridColor);
+                m_context->Display(line, Standard_False);
+                m_smootherObjects.append(line);
+              }
+            }
+          }
+        }
+
+        if (m_view)
+          m_view->Redraw();
+        smoother->saveConvergenceData("convergence.log");
+        emit smootherFinished();
+
+        watcher->deleteLater();
+        smoother->deleteLater();
+      });
+
+  QFuture<void> future = QtConcurrent::run([smoother]() { smoother->run(); });
+  watcher->setFuture(future);
 }

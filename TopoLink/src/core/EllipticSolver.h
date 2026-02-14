@@ -27,7 +27,8 @@ public:
   static std::vector<double> smoothGrid(
       std::vector<std::vector<gp_Pnt>> &grid,
       const std::vector<std::vector<bool>> &isFixed, const Params &params,
-      std::function<gp_Pnt(int, int, const gp_Pnt &)> constraintFunc = nullptr);
+      std::function<gp_Pnt(int, int, const gp_Pnt &)> constraintFunc = nullptr,
+      std::function<void(int, double)> progressFunc = nullptr);
 
 private:
   static double

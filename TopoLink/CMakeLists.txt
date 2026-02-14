@@ -13,7 +13,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 # Find Qt
-find_package(Qt5 COMPONENTS Widgets Core Gui REQUIRED)
+find_package(Qt5 COMPONENTS Widgets Core Gui Concurrent REQUIRED)
 
 # Find OpenCASCADE
 # Ensure 'CASROOT' environment variable is set or specify path here
@@ -37,6 +37,7 @@ set(SOURCES
     src/gui/pages/GeometryPage.cpp
     src/gui/pages/TopologyPage.cpp
     src/gui/pages/SmootherPage.cpp
+    src/gui/pages/ConvergencePlot.cpp
     src/gui/GroupDelegates.cpp
     src/core/TopoNode.cpp
     src/core/TopoEdge.cpp
@@ -53,6 +54,7 @@ set(HEADERS
     src/gui/pages/GeometryPage.h
     src/gui/pages/TopologyPage.h
     src/gui/pages/SmootherPage.h
+    src/gui/pages/ConvergencePlot.h
     src/gui/GroupDelegates.h
     src/gui/EntityOwner.h
     src/core/TopoNode.h
@@ -82,6 +84,7 @@ add_executable(MeshingApp MACOSX_BUNDLE
 # Link Libraries
 target_link_libraries(MeshingApp PRIVATE
     Qt5::Widgets
+    Qt5::Concurrent
     TKMath TKernel TKService TKV3d TKOpenGl TKBrep TKPrim 
     TKTopAlgo TKGeomAlgo TKGeomBase TKDESTEP TKXSBase TKMesh
 )

@@ -4,7 +4,8 @@
 std::vector<double> EllipticSolver::smoothGrid(
     std::vector<std::vector<gp_Pnt>> &grid,
     const std::vector<std::vector<bool>> &isFixed, const Params &params,
-    std::function<gp_Pnt(int, int, const gp_Pnt &)> constraintFunc) {
+    std::function<gp_Pnt(int, int, const gp_Pnt &)> constraintFunc,
+    std::function<void(int, double)> progressFunc) {
 
   std::vector<double> convergence;
   if (grid.empty() || grid[0].empty())
@@ -15,6 +16,9 @@ std::vector<double> EllipticSolver::smoothGrid(
   for (int it = 0; it < params.iterations; ++it) {
     double maxDist = iterate(grid, isFixed, params.relaxation, constraintFunc);
     convergence.push_back(maxDist);
+    if (progressFunc) {
+      progressFunc(it, maxDist);
+    }
     if (maxDist < 1e-9) // Converged
       break;
   }

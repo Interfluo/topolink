@@ -13,6 +13,8 @@
 #include <TopoDS_Shape.hxx>
 #include <gp_Pnt.hxx>
 
+#include <QObject>
+
 class Topology;
 class TopoEdge;
 class TopoFace;
@@ -20,7 +22,8 @@ class TopoFace;
 /**
  * @brief Manages the edge and face smoothing process.
  */
-class Smoother {
+class Smoother : public QObject {
+  Q_OBJECT
 public:
   struct SmoothedEdge {
     std::vector<gp_Pnt> points;
@@ -78,6 +81,10 @@ public:
 
   void saveConvergenceData(const QString &filename) const;
 
+signals:
+  void iterationCompleted(int id, int iteration, double error);
+
+public:
   // Accessors for results
   const QMap<int, SmoothedEdge> &getSmoothedEdges() const;
   const QMap<int, SmoothedFace> &getSmoothedFaces() const;

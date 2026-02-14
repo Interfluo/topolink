@@ -173,6 +173,9 @@ signals:
   void topologySelectionChanged();
   void workbenchRequested(int index);
 
+  void smootherIterationReported(int id, int iter, double error);
+  void smootherFinished();
+
 public slots:
   void setSelectionMode(int mode);
 

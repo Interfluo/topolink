@@ -12,6 +12,8 @@
 #include <BRep_Builder.hxx>
 #include <QDebug>
 #include <QFile>
+#include <QList>
+#include <QMap>
 #include <QTextStream>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
@@ -19,7 +21,8 @@
 #include <TopoDS_Shape.hxx>
 #include <gp_XYZ.hxx>
 
-Smoother::Smoother(Topology *topology) : m_topology(topology) {}
+Smoother::Smoother(Topology *topology)
+    : QObject(nullptr), m_topology(topology) {}
 
 Smoother::~Smoother() {}
 
@@ -161,6 +164,7 @@ void Smoother::smoothEdges() {
         points = nextPoints;
         double currentError = std::sqrt(maxDisp);
         convergence.push_back(currentError);
+        emit iterationCompleted(-edgeId, it, currentError);
         if (currentError < 1e-9)
           break;
       }
@@ -364,8 +368,12 @@ void Smoother::smoothFaces() {
       return projectToShape(p, surfaceConstraint);
     };
 
-    std::vector<double> convergence =
-        EllipticSolver::smoothGrid(grid, isFixed, params, constraintFunc);
+    auto progressFunc = [&](int it, double error) {
+      emit iterationCompleted(faceId, it, error);
+    };
+
+    std::vector<double> convergence = EllipticSolver::smoothGrid(
+        grid, isFixed, params, constraintFunc, progressFunc);
     m_convergenceHistory[faceId] = convergence;
 
     SmoothedFace sf;

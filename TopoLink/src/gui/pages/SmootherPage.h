@@ -4,9 +4,12 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
+#include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include <QWidget>
+
+class ConvergencePlot;
 
 class SmootherPage : public QWidget {
   Q_OBJECT
@@ -15,11 +18,19 @@ public:
 
   SmootherConfig getConfig() const;
 
+  ConvergencePlot *plot() const { return m_plot; }
+  QPushButton *runButton() const { return m_runBtn; }
+  void setStatusText(const QString &text);
+
 signals:
   void runSolverRequested();
 
 private:
   void setupUI();
+
+  ConvergencePlot *m_plot;
+  QPushButton *m_runBtn;
+  QLabel *m_statusLabel;
 
   QSpinBox *m_edgeIters;
   QDoubleSpinBox *m_edgeRelax;
