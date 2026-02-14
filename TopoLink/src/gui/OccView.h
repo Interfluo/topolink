@@ -76,6 +76,7 @@ public:
   // Refresh display after appearance changes
   void refreshDisplay();
   void reset(); // Reset the view (clear shapes and nodes)
+  void rebuildTopologyVisualization(); // Rebuild topology from model
 
   void init(); // Initialize the OCCT viewer
 

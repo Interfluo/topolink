@@ -601,69 +601,187 @@ void Topology::propagateSubdivisions(int edgeId, int subdivisions) {
 }
 
 TopoNode *Topology::splitEdge(int edgeId, double t) {
-
-  TopoEdge *oldEdge = getEdge(edgeId);
-  if (!oldEdge)
+  TopoEdge *startEdge = getEdge(edgeId);
+  if (!startEdge) {
+    qDebug() << "splitEdge: Edge" << edgeId << "not found";
     return nullptr;
-
-  TopoNode *start = oldEdge->getStartNode();
-  TopoNode *end = oldEdge->getEndNode();
-
-  // 1. Calculate new node position
-  gp_Pnt p1 = start->getPosition();
-  gp_Pnt p2 = end->getPosition();
-  gp_Vec v(p1, p2);
-  gp_Pnt pNew = p1.Translated(v * t);
-
-  // 2. Create the new node
-  TopoNode *newNode = createNode(pNew);
-  // Transfer constraint if any
-  newNode->setConstraintTargetID(start->getConstraintTargetID());
-
-  // 3. Create two new edges
-  TopoEdge *e1 = createEdge(start, newNode);
-  TopoEdge *e2 = createEdge(newNode, end);
-
-  // Inherit subdivisions
-  int subdivs = oldEdge->getSubdivisions();
-  e1->setSubdivisions(subdivs);
-  e2->setSubdivisions(subdivs);
-
-  // 4. Update all faces that use the old edge
-  std::vector<int> affectedFaceIds;
-  TopoHalfEdge *he1 = oldEdge->getForwardHalfEdge();
-  TopoHalfEdge *he2 = oldEdge->getBackwardHalfEdge();
-
-  if (he1 && he1->face) {
-    affectedFaceIds.push_back(he1->face->getID());
-  }
-  if (he2 && he2->face) {
-    affectedFaceIds.push_back(he2->face->getID());
   }
 
-  for (int fid : affectedFaceIds) {
-    TopoFace *face = getFace(fid);
-    if (face) {
-      face->splitEdge(oldEdge, e1, e2);
-      rebuildFaceHalfEdges(fid);
+  qDebug() << "splitEdge: Starting split of edge" << edgeId << "at t =" << t;
+
+  // Find all parallel edges that need to be split together
+  // using the same propagation logic as propagateSubdivisions
+  std::unordered_set<int> visited;
+  std::vector<int> edgesToSplit;
+  std::vector<int> queue;
+
+  queue.push_back(edgeId);
+  visited.insert(edgeId);
+
+  size_t head = 0;
+  while (head < queue.size()) {
+    int currId = queue[head++];
+    TopoEdge *currEdge = getEdge(currId);
+    if (!currEdge)
+      continue;
+
+    edgesToSplit.push_back(currId);
+
+    // Find parallel edges via adjacent quad faces
+    std::vector<TopoHalfEdge *> hes = {currEdge->getForwardHalfEdge(),
+                                       currEdge->getBackwardHalfEdge()};
+
+    qDebug() << "  Edge" << currId << "- Forward HE:"
+             << (hes[0] ? "exists" : "null")
+             << "Backward HE:" << (hes[1] ? "exists" : "null");
+
+    for (TopoHalfEdge *he : hes) {
+      if (!he) {
+        qDebug() << "    Half-edge is null, skipping";
+        continue;
+      }
+      if (!he->face) {
+        qDebug() << "    Half-edge has no face, skipping";
+        continue;
+      }
+
+      // Only propagate through QUAD faces (structured mesh assumption)
+      auto faceEdges = he->face->getEdges();
+      qDebug() << "    Face" << he->face->getID() << "has"
+               << faceEdges.size() << "edges";
+
+      if (faceEdges.size() == 4) {
+        // Find the opposite edge in the quad
+        TopoHalfEdge *curr = he;
+        // In a quad: next->next is the opposite half-edge
+        qDebug() << "      Checking for opposite edge: next ="
+                 << (curr->next ? "exists" : "null");
+        if (curr->next) {
+          qDebug() << "        next->next ="
+                   << (curr->next->next ? "exists" : "null");
+        }
+
+        if (curr->next && curr->next->next) {
+          TopoEdge *oppositeEdge = curr->next->next->parentEdge;
+          if (oppositeEdge) {
+            qDebug() << "        Found opposite edge" << oppositeEdge->getID();
+            if (visited.find(oppositeEdge->getID()) == visited.end()) {
+              qDebug() << "        Adding opposite edge"
+                       << oppositeEdge->getID() << "to queue";
+              visited.insert(oppositeEdge->getID());
+              queue.push_back(oppositeEdge->getID());
+            } else {
+              qDebug() << "        Opposite edge already visited";
+            }
+          }
+        }
+      }
     }
   }
 
-  // 5. Update edge groups
-  for (auto &groupPair : _edgeGroups) {
-    auto &group = groupPair.second;
-    auto it = std::find(group->edges.begin(), group->edges.end(), oldEdge);
-    if (it != group->edges.end()) {
-      it = group->edges.erase(it);
-      it = group->edges.insert(it, e1);
-      group->edges.insert(it + 1, e2);
+  qDebug() << "splitEdge: Found" << edgesToSplit.size()
+           << "parallel edges to split";
+
+  // Track all edges and their split results for batch processing
+  struct EdgeSplitData {
+    int oldEdgeId;
+    TopoEdge *oldEdge;
+    TopoNode *newNode;
+    TopoEdge *newEdge1;
+    TopoEdge *newEdge2;
+    std::vector<int> affectedFaceIds;
+  };
+  std::vector<EdgeSplitData> splitData;
+  splitData.reserve(edgesToSplit.size());
+
+  // Phase 1: Create all new nodes and edges
+  for (int eid : edgesToSplit) {
+    TopoEdge *oldEdge = getEdge(eid);
+    if (!oldEdge)
+      continue;
+
+    EdgeSplitData data;
+    data.oldEdgeId = eid;
+    data.oldEdge = oldEdge;
+
+    TopoNode *start = oldEdge->getStartNode();
+    TopoNode *end = oldEdge->getEndNode();
+
+    // Calculate new node position at parameter t
+    gp_Pnt p1 = start->getPosition();
+    gp_Pnt p2 = end->getPosition();
+    gp_Vec v(p1, p2);
+    gp_Pnt pNew = p1.Translated(v * t);
+
+    // Create new node
+    data.newNode = createNode(pNew);
+    // Transfer constraint if any
+    data.newNode->setConstraintTargetID(start->getConstraintTargetID());
+
+    // Create two new edges
+    data.newEdge1 = createEdge(start, data.newNode);
+    data.newEdge2 = createEdge(data.newNode, end);
+
+    // Inherit subdivisions
+    int subdivs = oldEdge->getSubdivisions();
+    data.newEdge1->setSubdivisions(subdivs);
+    data.newEdge2->setSubdivisions(subdivs);
+
+    // Find affected faces
+    TopoHalfEdge *he1 = oldEdge->getForwardHalfEdge();
+    TopoHalfEdge *he2 = oldEdge->getBackwardHalfEdge();
+
+    if (he1 && he1->face) {
+      data.affectedFaceIds.push_back(he1->face->getID());
+    }
+    if (he2 && he2->face) {
+      data.affectedFaceIds.push_back(he2->face->getID());
+    }
+
+    splitData.push_back(data);
+  }
+
+  // Phase 2: Update all affected faces
+  std::set<int> facesToRebuild;
+  for (const auto &data : splitData) {
+    for (int fid : data.affectedFaceIds) {
+      TopoFace *face = getFace(fid);
+      if (face) {
+        face->splitEdge(data.oldEdge, data.newEdge1, data.newEdge2);
+        facesToRebuild.insert(fid);
+      }
     }
   }
 
-  // 6. Delete the old edge
-  deleteEdge(edgeId);
+  // Phase 3: Rebuild half-edges for all affected faces
+  for (int fid : facesToRebuild) {
+    rebuildFaceHalfEdges(fid);
+  }
 
-  return newNode;
+  // Phase 4: Update edge groups
+  for (const auto &data : splitData) {
+    for (auto &groupPair : _edgeGroups) {
+      auto &group = groupPair.second;
+      auto it = std::find(group->edges.begin(), group->edges.end(), data.oldEdge);
+      if (it != group->edges.end()) {
+        it = group->edges.erase(it);
+        it = group->edges.insert(it, data.newEdge1);
+        group->edges.insert(it + 1, data.newEdge2);
+      }
+    }
+  }
+
+  // Phase 5: Delete all old edges
+  for (const auto &data : splitData) {
+    deleteEdge(data.oldEdgeId);
+  }
+
+  qDebug() << "splitEdge: Successfully split" << splitData.size() << "edges";
+  qDebug() << "splitEdge: Total edges now:" << _edges.size()
+           << "Total nodes now:" << _nodes.size();
+
+  // Return the new node created from the initial edge split
+  return splitData.empty() ? nullptr : splitData[0].newNode;
 }
 
 // ---------------------------------------------------------------------------
