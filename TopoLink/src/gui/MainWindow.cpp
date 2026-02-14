@@ -813,6 +813,11 @@ void MainWindow::onUpdateTopologyGroups() {
 
     m_occView->setTopologyEdgeGroupAppearance(
         group.ids, group.color, static_cast<int>(group.renderMode));
+
+    // Debug logging for stdout
+    qDebug() << "MainWindow: Processing Topo Edge Group" << group.name << "with"
+             << group.ids.size() << "edges";
+
     logMessage(QString("  Topo Edge Group '%1': %2 edges")
                    .arg(group.name)
                    .arg(group.ids.size()));
@@ -821,6 +826,9 @@ void MainWindow::onUpdateTopologyGroups() {
       const GeometryGroup *geoGroup =
           m_geometryPage->getEdgeGroupByName(group.linkedGeometryGroup);
       if (geoGroup && !geoGroup->ids.isEmpty()) {
+        qDebug() << "    Linked to Geo Group" << geoGroup->name << "with"
+                 << geoGroup->ids.size() << "edges";
+
         logMessage(QString("    Linking Topo Group '%1' to Geo "
                            "Group '%2' (%3 edges)")
                        .arg(group.name)
@@ -834,11 +842,21 @@ void MainWindow::onUpdateTopologyGroups() {
             c.geometryIds = geoGroup->ids;
             c.isEdgeGroup = true;
 
+            // Debug each edge
+            qDebug() << "      Applying constraint to Edge" << edgeId << "Nodes"
+                     << edge->getStartNode()->getID()
+                     << edge->getEndNode()->getID();
+
             addOrMergeConstraint(edge->getStartNode()->getID(), c);
             addOrMergeConstraint(edge->getEndNode()->getID(), c);
+          } else {
+            qDebug() << "      WARNING: Edge" << edgeId
+                     << "not found in topology!";
           }
         }
       } else {
+        qDebug() << "    WARNING: Linked Geo Group" << group.linkedGeometryGroup
+                 << "not found or empty!";
         logMessage(QString("    WARNING: Linked Geo Group '%1' "
                            "not found or empty!")
                        .arg(group.linkedGeometryGroup));

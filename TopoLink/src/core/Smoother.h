@@ -3,6 +3,7 @@
 
 #include <QList>
 #include <QMap>
+#include <QSet>
 #include <QString>
 #include <map>
 #include <vector>
@@ -96,6 +97,8 @@ private:
 
   void smoothSingleEdge(int edgeId, TopoEdge *edge);
   void smoothSingleFace(int faceId, TopoFace *face);
+  void smoothFaceGroup(const TopoFaceGroup *group,
+                       QSet<int> &processedFaces); // Added method
 
   // Helper to project point to shape
   gp_Pnt projectToShape(const gp_Pnt &p, const TopoDS_Shape &s);

@@ -101,6 +101,13 @@ public:
   std::string getFaceGeometryID(int faceId) const;
   void clearGroups();
 
+  const std::map<int, std::unique_ptr<TopoFaceGroup>> &getFaceGroups() const {
+    return _faceGroups;
+  }
+  const std::map<int, std::unique_ptr<TopoEdgeGroup>> &getEdgeGroups() const {
+    return _edgeGroups;
+  }
+
 private:
   int _nextId;
   int generateID();
