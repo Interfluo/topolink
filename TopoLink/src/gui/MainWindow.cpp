@@ -1021,8 +1021,8 @@ void MainWindow::onPageChanged(int index) {
     }
     // Mode 2: Smoother
     else if (index == 2) {
-      if (m_occView->getInteractionMode() != OccView::Mode_Topology)
-        m_occView->setInteractionMode(OccView::Mode_Topology);
+      if (m_occView->getInteractionMode() != OccView::Mode_Geometry)
+        m_occView->setInteractionMode(OccView::Mode_Geometry);
 
       m_occView->setWorkbench(2);
     }

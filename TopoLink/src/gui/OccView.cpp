@@ -424,7 +424,11 @@ void OccView::addEdge(int node1, int node2) {
     // for a brand new edge, it won't have a style yet. But if we ever re-create
     // edgeId, it will.
 
-    m_context->Display(aisLine, Standard_True);
+    if (m_workbenchIndex == 1) {
+      m_context->Display(aisLine, Standard_True);
+    } else {
+      m_context->Erase(aisLine, Standard_False);
+    }
     auto key = qMakePair(qMin(node1, node2), qMax(node1, node2));
     m_topologyEdges.insert(key, aisLine);
 
@@ -787,8 +791,12 @@ int OccView::addTopologyNode(const gp_Pnt &p) {
   // (Shaded)
   aisNode->SetHilightMode(0);
 
-  m_context->Display(aisNode, Standard_True);
-  m_context->Activate(aisNode, 1, true);
+  if (m_workbenchIndex == 1) {
+    m_context->Display(aisNode, Standard_True);
+    m_context->Activate(aisNode, 1, true);
+  } else {
+    m_context->Erase(aisNode, Standard_False);
+  }
 
   m_topologyNodes.insert(id, aisNode);
 
@@ -1138,7 +1146,7 @@ void OccView::mousePressEvent(QMouseEvent *event) {
   setFocus();
 
   if (event->button() == Qt::LeftButton) {
-    if (m_interactionMode == Mode_Topology) {
+    if (m_interactionMode == Mode_Topology && m_workbenchIndex == 1) {
       m_context->MoveTo(event->x(), event->y(), m_view, Standard_False);
 
       Handle(AIS_InteractiveObject) detectedObj;
