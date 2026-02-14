@@ -43,6 +43,7 @@ set(SOURCES
     src/core/TopoFace.cpp
     src/core/Topology.cpp
     src/core/EllipticSolver.cpp
+    src/core/Smoother.cpp
     src/gui/ProjectManager.cpp
 )
 
@@ -58,6 +59,7 @@ set(HEADERS
     src/core/TopoEdge.h
     src/core/TopoFace.h
     src/core/Topology.h
+    src/core/Smoother.h
     src/gui/ProjectManager.h
 )
 
