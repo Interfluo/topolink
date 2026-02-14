@@ -98,6 +98,13 @@ void SmootherPage::setupUI() {
       "background-color: #0078d7; color: white; font-weight: "
       "bold; padding: 10px; border-radius: 4px;");
   configLayout->addWidget(m_runBtn);
+
+  m_exportBtn = new QPushButton("Export Mesh");
+  m_exportBtn->setStyleSheet(
+      "background-color: #28a745; color: white; font-weight: "
+      "bold; padding: 10px; border-radius: 4px;");
+  configLayout->addWidget(m_exportBtn);
+
   configLayout->addStretch();
 
   m_tabWidget->addTab(configTab, "Configuration");
@@ -116,6 +123,8 @@ void SmootherPage::setupUI() {
 
   connect(m_runBtn, &QPushButton::clicked, this,
           &SmootherPage::runSolverRequested);
+  connect(m_exportBtn, &QPushButton::clicked, this,
+          &SmootherPage::exportRequested);
 }
 
 void SmootherPage::showOptions() {

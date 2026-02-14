@@ -25,6 +25,7 @@ public:
 
 signals:
   void runSolverRequested();
+  void exportRequested();
 
 public slots:
   void showOptions();
@@ -36,6 +37,7 @@ private:
   QTabWidget *m_tabWidget;
   ConvergencePlot *m_plot;
   QPushButton *m_runBtn;
+  QPushButton *m_exportBtn;
   QLabel *m_statusLabel;
 
   QSpinBox *m_edgeIters;

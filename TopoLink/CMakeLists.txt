@@ -46,6 +46,7 @@ set(SOURCES
     src/core/Topology.cpp
     src/core/EllipticSolver.cpp
     src/core/Smoother.cpp
+    src/core/MeshExporter.cpp
     src/gui/ProjectManager.cpp
 )
 
@@ -64,6 +65,7 @@ set(HEADERS
     src/core/TopoFace.h
     src/core/Topology.h
     src/core/Smoother.h
+    src/core/MeshExporter.h
     src/gui/ProjectManager.h
     src/gui/SplitEdgeDialog.h
 )

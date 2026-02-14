@@ -37,6 +37,7 @@ private slots:
   void onUpdateGeometryGroups();
   void onUpdateTopologyGroups();
   void onRunSolver();
+  void onExportMesh();
 
   // Navigation
   void onPageChanged(int index);

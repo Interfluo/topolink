@@ -29,6 +29,7 @@
 
 class Topology;
 class TopoFace;
+class Smoother;
 
 class OccView : public QWidget {
   Q_OBJECT
@@ -132,6 +133,7 @@ public:
   void hideSmootherVisualization();
   void createTfiMesh(int faceId);
   void runEllipticSolver(const SmootherConfig &config);
+  Smoother *getSmoother() const { return m_smoother; }
 
   // Topology Group Appearance
   void setTopologyFaceGroupAppearance(const QList<int> &ids,
@@ -298,5 +300,6 @@ private:
   int m_geometrySelectionMode = 4; // Default to Face (TopAbs_FACE = 4)
 
   Topology *m_topologyModel = nullptr;
+  Smoother *m_smoother = nullptr;
   QList<Handle(AIS_InteractiveObject)> m_smootherObjects;
 };

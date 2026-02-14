@@ -1,4 +1,6 @@
 #include "MainWindow.h"
+#include "../core/MeshExporter.h"
+#include "../core/Smoother.h"
 #include "ProjectManager.h"
 #include "pages/ConvergencePlot.h"
 #include <QAction>
@@ -140,6 +142,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   connect(m_smootherPage, &SmootherPage::runSolverRequested, this,
           &MainWindow::onRunSolver);
+  connect(m_smootherPage, &SmootherPage::exportRequested, this,
+          &MainWindow::onExportMesh);
 
   // Smoother Plotting Connections
   connect(
@@ -804,11 +808,11 @@ void MainWindow::onUpdateTopologyGroups() {
       const GeometryGroup *geoGroup =
           m_geometryPage->getEdgeGroupByName(group.linkedGeometryGroup);
       if (geoGroup && !geoGroup->ids.isEmpty()) {
-        logMessage(
-            QString("    Linking Topo Group '%1' to Geo Group '%2' (%3 edges)")
-                .arg(group.name)
-                .arg(geoGroup->name)
-                .arg(geoGroup->ids.size()));
+        logMessage(QString("    Linking Topo Group '%1' to Geo "
+                           "Group '%2' (%3 edges)")
+                       .arg(group.name)
+                       .arg(geoGroup->name)
+                       .arg(geoGroup->ids.size()));
         for (int edgeId : group.ids) {
           TopoEdge *edge = m_topology->getEdge(edgeId);
           if (edge) {
@@ -822,9 +826,9 @@ void MainWindow::onUpdateTopologyGroups() {
           }
         }
       } else {
-        logMessage(
-            QString("    WARNING: Linked Geo Group '%1' not found or empty!")
-                .arg(group.linkedGeometryGroup));
+        logMessage(QString("    WARNING: Linked Geo Group '%1' "
+                           "not found or empty!")
+                       .arg(group.linkedGeometryGroup));
       }
     }
   }
@@ -880,13 +884,51 @@ void MainWindow::onUpdateTopologyGroups() {
   logMessage("Topology groups updated and constraints applied.");
 }
 
+void MainWindow::onExportMesh() {
+  if (!m_topology || !m_occView)
+    return;
+
+  Smoother *smoother = m_occView->getSmoother();
+  if (!smoother) {
+    QMessageBox::warning(this, "Export Mesh", "Smoother not available.");
+    return;
+  }
+
+  if (smoother->getSmoothedFaces().isEmpty()) {
+    QMessageBox::warning(
+        this, "Export Mesh",
+        "No smoothed mesh available. Please run the solver first.");
+    return;
+  }
+
+  QString fileName = QFileDialog::getSaveFileName(
+      this, "Export Mesh", QDir::homePath(), "VTK Legacy Files (*.vtk)",
+      nullptr, QFileDialog::DontUseNativeDialog);
+
+  if (fileName.isEmpty())
+    return;
+
+  if (!fileName.endsWith(".vtk", Qt::CaseInsensitive))
+    fileName += ".vtk";
+
+  if (MeshExporter::exportToVTK(fileName, m_topology, smoother)) {
+    logMessage("Mesh exported successfully to: " + fileName);
+    QMessageBox::information(this, "Export Mesh",
+                             "Mesh exported successfully.");
+  } else {
+    logMessage("Failed to export mesh to: " + fileName);
+    QMessageBox::critical(this, "Error", "Failed to export mesh.");
+  }
+}
+
 void MainWindow::restoreTopologyToView() {
   if (!m_topology || !m_occView || !m_topologyPage)
     return;
 
   logMessage("Restoring topology visuals and groups...");
 
-  // Disable automatic grouping of "Unused" while we recreate the entities
+  // Disable automatic grouping of "Unused" while we recreate
+  // the entities
   m_topologyPage->setAutoGroupUnused(false);
 
   // 1. Restore Nodes
@@ -912,7 +954,8 @@ void MainWindow::restoreTopologyToView() {
           nodeIds.append(he->origin->getID());
         he = he->next;
         if (++safety > Topology::kHalfEdgeLoopLimit) {
-          qDebug() << "MainWindow: Safety break in restoreTopologyToView "
+          qDebug() << "MainWindow: Safety break in "
+                      "restoreTopologyToView "
                       "(Step 3) for face"
                    << id;
           break;
@@ -944,7 +987,8 @@ void MainWindow::restoreTopologyToView() {
         nodeIds.append(he->origin->getID());
         he = he->next;
         if (++safety > Topology::kHalfEdgeLoopLimit) {
-          qDebug() << "MainWindow: Safety break in restoreTopologyToView "
+          qDebug() << "MainWindow: Safety break in "
+                      "restoreTopologyToView "
                       "(Step 4) for face"
                    << id;
           break;
@@ -963,7 +1007,8 @@ void MainWindow::restoreTopologyToView() {
   }
 
   m_occView->finalizeRestoration();
-  onUpdateTopologyGroups(); // Re-derive and apply constraints and appearances
+  onUpdateTopologyGroups(); // Re-derive and apply
+                            // constraints and appearances
   logMessage("Topology restoration complete.");
 }
 
@@ -1103,8 +1148,8 @@ void MainWindow::onPageChanged(int index) {
     else if (index == 1) {
       // Ensure we have valid geometry loaded
       if (m_faceMap->IsEmpty()) {
-        logMessage(
-            "Warning: No geometry loaded. Please import a STEP file first.");
+        logMessage("Warning: No geometry loaded. Please "
+                   "import a STEP file first.");
       }
       if (m_occView->getInteractionMode() != OccView::Mode_Topology)
         m_occView->setInteractionMode(OccView::Mode_Topology);
