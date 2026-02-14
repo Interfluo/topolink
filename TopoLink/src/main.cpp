@@ -1,6 +1,7 @@
 #include "gui/MainWindow.h"
 #include <QApplication>
 #include <QDebug>
+#include <QIcon>
 #include <exception>
 
 int main(int argc, char *argv[]) {
@@ -10,6 +11,7 @@ int main(int argc, char *argv[]) {
     qDebug() << "Creating MainWindow...";
     MainWindow window;
     window.setWindowTitle("Bijective Meshing Tool");
+    window.setWindowIcon(QIcon(":/resources/MeshingApp.png"));
 
     qDebug() << "Showing MainWindow...";
     window.show();

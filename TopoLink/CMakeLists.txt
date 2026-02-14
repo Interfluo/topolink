@@ -76,6 +76,7 @@ add_executable(MeshingApp MACOSX_BUNDLE
     ${SOURCES}
     ${HEADERS}
     ${APP_ICON_MACOSX}
+    resources.qrc
 )
 
 # Link Libraries
