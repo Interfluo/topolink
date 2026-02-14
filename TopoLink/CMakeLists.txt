@@ -65,7 +65,9 @@ set(HEADERS
     src/core/Topology.h
     src/core/Smoother.h
     src/gui/ProjectManager.h
+    src/gui/SplitEdgeDialog.h
 )
+
 
 # macOS App Icon
 if(APPLE)

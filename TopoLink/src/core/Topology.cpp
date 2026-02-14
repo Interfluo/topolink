@@ -600,6 +600,72 @@ void Topology::propagateSubdivisions(int edgeId, int subdivisions) {
   }
 }
 
+TopoNode *Topology::splitEdge(int edgeId, double t) {
+
+  TopoEdge *oldEdge = getEdge(edgeId);
+  if (!oldEdge)
+    return nullptr;
+
+  TopoNode *start = oldEdge->getStartNode();
+  TopoNode *end = oldEdge->getEndNode();
+
+  // 1. Calculate new node position
+  gp_Pnt p1 = start->getPosition();
+  gp_Pnt p2 = end->getPosition();
+  gp_Vec v(p1, p2);
+  gp_Pnt pNew = p1.Translated(v * t);
+
+  // 2. Create the new node
+  TopoNode *newNode = createNode(pNew);
+  // Transfer constraint if any
+  newNode->setConstraintTargetID(start->getConstraintTargetID());
+
+  // 3. Create two new edges
+  TopoEdge *e1 = createEdge(start, newNode);
+  TopoEdge *e2 = createEdge(newNode, end);
+
+  // Inherit subdivisions
+  int subdivs = oldEdge->getSubdivisions();
+  e1->setSubdivisions(subdivs);
+  e2->setSubdivisions(subdivs);
+
+  // 4. Update all faces that use the old edge
+  std::vector<int> affectedFaceIds;
+  TopoHalfEdge *he1 = oldEdge->getForwardHalfEdge();
+  TopoHalfEdge *he2 = oldEdge->getBackwardHalfEdge();
+
+  if (he1 && he1->face) {
+    affectedFaceIds.push_back(he1->face->getID());
+  }
+  if (he2 && he2->face) {
+    affectedFaceIds.push_back(he2->face->getID());
+  }
+
+  for (int fid : affectedFaceIds) {
+    TopoFace *face = getFace(fid);
+    if (face) {
+      face->splitEdge(oldEdge, e1, e2);
+      rebuildFaceHalfEdges(fid);
+    }
+  }
+
+  // 5. Update edge groups
+  for (auto &groupPair : _edgeGroups) {
+    auto &group = groupPair.second;
+    auto it = std::find(group->edges.begin(), group->edges.end(), oldEdge);
+    if (it != group->edges.end()) {
+      it = group->edges.erase(it);
+      it = group->edges.insert(it, e1);
+      group->edges.insert(it + 1, e2);
+    }
+  }
+
+  // 6. Delete the old edge
+  deleteEdge(edgeId);
+
+  return newNode;
+}
+
 // ---------------------------------------------------------------------------
 // Face Management
 // ---------------------------------------------------------------------------
@@ -640,7 +706,8 @@ void Topology::deleteFace(int id) {
   if (!face)
     return;
 
-  // Reset half-edges belonging to this face (don't delete them, edges own them)
+  // Reset half-edges belonging to this face (don't delete them, edges own
+  // them)
   resetHalfEdgeLoop(face->getBoundary());
 
   // Remove from face groups

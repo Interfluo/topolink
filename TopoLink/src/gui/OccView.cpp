@@ -1,4 +1,6 @@
 #include "OccView.h"
+#include "SplitEdgeDialog.h"
+
 #include "../core/EllipticSolver.h"
 #include "../core/Smoother.h"
 #include "../core/TopoEdge.h"
@@ -1797,6 +1799,7 @@ void OccView::contextMenuEvent(QContextMenuEvent *event) {
   if (edgeId != -1) {
     QMenu menu(this);
     QAction *setSubdivs = menu.addAction(tr("Set Subdivisions..."));
+    QAction *splitEdge = menu.addAction(tr("Split Edge..."));
 
     QAction *selectedAction = menu.exec(event->globalPos());
     if (selectedAction == setSubdivs) {
@@ -1813,6 +1816,37 @@ void OccView::contextMenuEvent(QContextMenuEvent *event) {
           qDebug() << "Propagated subdivisions" << newVal << "from edge"
                    << edgeId;
         }
+      }
+    } else if (selectedAction == splitEdge) {
+      TopoEdge *edge = m_topologyModel->getEdge(edgeId);
+      if (edge) {
+        m_activeSplitEdgeId = edgeId;
+        SplitEdgeDialog dlg(this);
+        connect(&dlg, &SplitEdgeDialog::valueChanged, this,
+                &OccView::onSplitEdgePreview);
+
+        // Initial preview
+        onSplitEdgePreview(dlg.getNormalizedValue());
+
+        if (dlg.exec() == QDialog::Accepted) {
+          double t = dlg.getNormalizedValue();
+          m_topologyModel->splitEdge(edgeId, t);
+          emit topologySelectionChanged();
+          m_view->Redraw();
+        }
+
+        // Cleanup preview
+        if (!m_splitPreviewNode.IsNull())
+          m_context->Remove(m_splitPreviewNode, Standard_False);
+        if (!m_splitPreviewEdge1.IsNull())
+          m_context->Remove(m_splitPreviewEdge1, Standard_False);
+        if (!m_splitPreviewEdge2.IsNull())
+          m_context->Remove(m_splitPreviewEdge2, Standard_False);
+        m_splitPreviewNode.Nullify();
+        m_splitPreviewEdge1.Nullify();
+        m_splitPreviewEdge2.Nullify();
+        m_activeSplitEdgeId = -1;
+        m_view->Redraw();
       }
     }
   }
@@ -3004,4 +3038,63 @@ void OccView::runEllipticSolver(const SmootherConfig &config) {
 
   QFuture<void> future = QtConcurrent::run([smoother]() { smoother->run(); });
   watcher->setFuture(future);
+}
+
+void OccView::onSplitEdgePreview(double t) {
+  if (m_activeSplitEdgeId == -1 || !m_topologyModel)
+    return;
+
+  TopoEdge *edge = m_topologyModel->getEdge(m_activeSplitEdgeId);
+  if (!edge)
+    return;
+
+  gp_Pnt p1 = edge->getStartNode()->getPosition();
+  gp_Pnt p2 = edge->getEndNode()->getPosition();
+  gp_Vec v(p1, p2);
+  gp_Pnt pNew = p1.Translated(v * t);
+
+  // Update Preview Node
+  if (m_splitPreviewNode.IsNull()) {
+    Handle(Geom_CartesianPoint) geomPt = new Geom_CartesianPoint(pNew);
+    m_splitPreviewNode = new AIS_Point(geomPt);
+    m_splitPreviewNode->SetColor(Quantity_NOC_YELLOW);
+    m_splitPreviewNode->Attributes()->SetPointAspect(
+        new Prs3d_PointAspect(Aspect_TOM_O, Quantity_NOC_YELLOW, 2.0));
+    m_context->Display(m_splitPreviewNode, Standard_False);
+  } else {
+    Handle(AIS_Point) aisPt = Handle(AIS_Point)::DownCast(m_splitPreviewNode);
+    aisPt->SetComponent(new Geom_CartesianPoint(pNew));
+    m_context->Redisplay(m_splitPreviewNode, Standard_False);
+  }
+
+  // Update Preview Edges
+  if (m_splitPreviewEdge1.IsNull()) {
+    m_splitPreviewEdge1 = new AIS_Line(new Geom_CartesianPoint(p1),
+                                       new Geom_CartesianPoint(pNew));
+    m_splitPreviewEdge1->SetColor(Quantity_NOC_YELLOW);
+    m_splitPreviewEdge1->Attributes()->SetLineAspect(
+        new Prs3d_LineAspect(Quantity_NOC_YELLOW, Aspect_TOL_DOT, 1.0));
+    m_context->Display(m_splitPreviewEdge1, Standard_False);
+  } else {
+    Handle(AIS_Line) aisL1 = Handle(AIS_Line)::DownCast(m_splitPreviewEdge1);
+    aisL1->SetPoints(new Geom_CartesianPoint(p1),
+                     new Geom_CartesianPoint(pNew));
+    m_context->Redisplay(m_splitPreviewEdge1, Standard_False);
+  }
+
+  if (m_splitPreviewEdge2.IsNull()) {
+    m_splitPreviewEdge2 = new AIS_Line(new Geom_CartesianPoint(pNew),
+                                       new Geom_CartesianPoint(p2));
+    m_splitPreviewEdge2->SetColor(Quantity_NOC_YELLOW);
+    m_splitPreviewEdge2->Attributes()->SetLineAspect(
+        new Prs3d_LineAspect(Quantity_NOC_YELLOW, Aspect_TOL_DOT, 1.0));
+    m_context->Display(m_splitPreviewEdge2, Standard_False);
+  } else {
+    Handle(AIS_Line) aisL2 = Handle(AIS_Line)::DownCast(m_splitPreviewEdge2);
+    aisL2->SetPoints(new Geom_CartesianPoint(pNew),
+                     new Geom_CartesianPoint(p2));
+    m_context->Redisplay(m_splitPreviewEdge2, Standard_False);
+  }
+
+  m_view->Redraw();
 }

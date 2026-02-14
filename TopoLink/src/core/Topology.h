@@ -56,7 +56,9 @@ public:
   TopoEdge *getEdge(TopoNode *start, TopoNode *end) const;
   TopoEdge *getEdge(int n1Id, int n2Id) const;
   void deleteEdge(int id);
+  TopoNode *splitEdge(int edgeId, double t);
   void rebuildEdgeLookup();
+
   const std::map<int, TopoEdge *> &getEdges() const;
 
   // Edge Dimensions

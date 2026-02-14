@@ -17,6 +17,7 @@ public:
   const std::vector<TopoEdge *> &getEdges() const;
 
   void replaceEdge(TopoEdge *oldEdge, TopoEdge *newEdge);
+  void splitEdge(TopoEdge *oldEdge, TopoEdge *newEdge1, TopoEdge *newEdge2);
   void removeEdge(TopoEdge *edge);
 
   // Half-Edge Access

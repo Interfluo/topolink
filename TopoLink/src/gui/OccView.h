@@ -247,6 +247,13 @@ private:
   void updateConnectedEdges(int nodeId);
   gp_Pnt applyConstraint(int nodeId, const gp_Pnt &newPos);
 
+  // Split Edge
+  void onSplitEdgePreview(double t);
+  Handle(AIS_InteractiveObject) m_splitPreviewNode;
+  Handle(AIS_InteractiveObject) m_splitPreviewEdge1;
+  Handle(AIS_InteractiveObject) m_splitPreviewEdge2;
+  int m_activeSplitEdgeId = -1;
+
   // Topology Faces
   QMap<int, Handle(AIS_InteractiveObject)> m_topologyFaces;
   QMap<int, QList<int>> m_faceNodeMap; // Face ID -> List of Node IDs (ordered)

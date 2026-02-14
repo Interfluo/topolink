@@ -17,6 +17,23 @@ void TopoFace::replaceEdge(TopoEdge *oldEdge, TopoEdge *newEdge) {
   }
 }
 
+void TopoFace::splitEdge(TopoEdge *oldEdge, TopoEdge *newEdge1,
+                         TopoEdge *newEdge2) {
+  for (auto it = _edges.begin(); it != _edges.end(); ++it) {
+    if (*it == oldEdge) {
+      // Find the direction of the old edge in the face's half-edge loop
+      // to determine the order of newEdge1 and newEdge2.
+      // However, our model simply keeps an unordered (or rather, ordered by
+      // creation) vector of edges, and rebuilds the DCEL. So we just need
+      // to replace one edge with two.
+      it = _edges.erase(it);
+      it = _edges.insert(it, newEdge1);
+      _edges.insert(it + 1, newEdge2);
+      break;
+    }
+  }
+}
+
 void TopoFace::removeEdge(TopoEdge *edge) {
   _edges.erase(std::remove(_edges.begin(), _edges.end(), edge), _edges.end());
 }
