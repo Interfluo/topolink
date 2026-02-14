@@ -83,6 +83,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_smootherPage->setWindowTitle("Smoother Controls");
   m_smootherPage->hide();
 
+  // Set minimum width for control panels (3x default)
+  m_geometryPage->setMinimumWidth(650);
+  m_topologyPage->setMinimumWidth(650);
+  m_smootherPage->setMinimumWidth(650);
+
   // Add OccView to grid
   viewLayout->addWidget(m_occView, 0, 0);
 

@@ -8,6 +8,13 @@ int main(int argc, char *argv[]) {
   try {
     QApplication app(argc, argv);
 
+    // Increase default menu width and add padding
+    app.setStyleSheet(
+        "QMenu { min-width: 200px; padding: 5px; background-color: #3E3E42; "
+        "color: #F0F0F0; border: 1px solid #555; } "
+        "QMenu::item { padding: 5px 25px 5px 20px; } "
+        "QMenu::item:selected { background-color: #007ACC; }");
+
     qDebug() << "Creating MainWindow...";
     MainWindow window;
     window.setWindowTitle("Bijective Meshing Tool");
