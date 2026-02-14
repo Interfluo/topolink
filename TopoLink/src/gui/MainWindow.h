@@ -1,16 +1,17 @@
 #pragma once
 #include "../core/Topology.h"
+#include "BannerWidget.h" // [NEW]
 #include "OccView.h"
 #include "pages/GeometryPage.h"
 #include "pages/SmootherPage.h"
 #include "pages/TopologyPage.h"
+#include <QGridLayout> // [NEW]
 #include <QMainWindow>
 
-#include <QDockWidget>
+#include <QDockWidget> // [NEW]
 #include <QLabel>
 #include <QPushButton>
 #include <QShortcut>
-#include <QStackedWidget>
 #include <QTextEdit>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS_Shape.hxx>
@@ -37,26 +38,20 @@ private slots:
   void onUpdateTopologyGroups();
   void onRunSolver();
 
-  // Wizard Navigation
-  void onNextPage();
-  void onBackPage();
+  // Navigation
   void onPageChanged(int index);
 
 private:
+  // UI Components
+  BannerWidget *m_banner;
   OccView *m_occView;
-  QDockWidget *m_controlsDock;
   QDockWidget *m_consoleDock;
   QTextEdit *m_console;
 
-  // Wizard Components
-  QStackedWidget *m_pageStack;
+  // Pages (Overlays)
   GeometryPage *m_geometryPage;
   TopologyPage *m_topologyPage;
   SmootherPage *m_smootherPage;
-
-  QPushButton *m_nextBtn;
-  QPushButton *m_backBtn;
-  QLabel *m_pageTitle;
 
   TopTools_IndexedMapOfShape *m_faceMap;
   TopTools_IndexedMapOfShape *m_edgeMap;

@@ -12,15 +12,29 @@ void SmootherPage::setStatusText(const QString &text) {
 void SmootherPage::setupUI() {
   QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
+  // Create Tab Widget
+  m_tabWidget = new QTabWidget();
+  m_tabWidget->setStyleSheet(
+      "QTabWidget::pane { border: none; }"
+      "QLabel { color: #333333; background-color: transparent; }"
+      "QGroupBox { color: #333333; font-weight: bold; }");
+
+  // --- Tab 1: Configuration ---
+  QWidget *configTab = new QWidget();
+  QVBoxLayout *configLayout = new QVBoxLayout(configTab);
+  configLayout->setContentsMargins(5, 5, 5, 5);
+
+  // Header & Status inside config tab
   QLabel *header = new QLabel("Solver Configuration");
-  header->setStyleSheet(
-      "font-weight: bold; font-size: 16px; margin-bottom: 2px;");
-  mainLayout->addWidget(header);
+  header->setStyleSheet("font-weight: bold; font-size: 16px; margin-bottom: "
+                        "2px; background-color: transparent;");
+  configLayout->addWidget(header);
 
   m_statusLabel = new QLabel("");
-  m_statusLabel->setStyleSheet("color: #0078d7; font-weight: bold;");
+  m_statusLabel->setStyleSheet(
+      "color: #0078d7; font-weight: bold; background-color: transparent;");
   m_statusLabel->setAlignment(Qt::AlignCenter);
-  mainLayout->addWidget(m_statusLabel);
+  configLayout->addWidget(m_statusLabel);
 
   QGroupBox *edgeGroup = new QGroupBox("Edge Solver");
   QFormLayout *edgeLayout = new QFormLayout(edgeGroup);
@@ -38,7 +52,7 @@ void SmootherPage::setupUI() {
   edgeLayout->addRow("Iterations:", m_edgeIters);
   edgeLayout->addRow("Relaxation:", m_edgeRelax);
   edgeLayout->addRow("BC Relaxation:", m_edgeBCRelax);
-  mainLayout->addWidget(edgeGroup);
+  configLayout->addWidget(edgeGroup);
 
   QGroupBox *faceGroup = new QGroupBox("Face Solver");
   QFormLayout *faceLayout = new QFormLayout(faceGroup);
@@ -56,7 +70,7 @@ void SmootherPage::setupUI() {
   faceLayout->addRow("Iterations:", m_faceIters);
   faceLayout->addRow("Relaxation:", m_faceRelax);
   faceLayout->addRow("BC Relaxation:", m_faceBCRelax);
-  mainLayout->addWidget(faceGroup);
+  configLayout->addWidget(faceGroup);
 
   QGroupBox *miscGroup = new QGroupBox("Global parameters");
   QFormLayout *miscLayout = new QFormLayout(miscGroup);
@@ -77,22 +91,41 @@ void SmootherPage::setupUI() {
   miscLayout->addRow("Growth Rate Relax:", m_growthRateRelax);
   miscLayout->addRow("Sub-iterations:", m_subIters);
   miscLayout->addRow("Proj. Frequency:", m_projFreq);
-  mainLayout->addWidget(miscGroup);
-
-  mainLayout->addSpacing(10);
-  m_plot = new ConvergencePlot(this);
-  mainLayout->addWidget(m_plot, 1); // Give plot stretch factor
-
-  mainLayout->addStretch();
+  configLayout->addWidget(miscGroup);
 
   m_runBtn = new QPushButton("Run Solver");
   m_runBtn->setStyleSheet(
       "background-color: #0078d7; color: white; font-weight: "
-      "bold; padding: 10px;");
-  mainLayout->addWidget(m_runBtn);
+      "bold; padding: 10px; border-radius: 4px;");
+  configLayout->addWidget(m_runBtn);
+  configLayout->addStretch();
+
+  m_tabWidget->addTab(configTab, "Configuration");
+
+  // --- Tab 2: Plot ---
+  QWidget *plotTab = new QWidget();
+  QVBoxLayout *plotLayout = new QVBoxLayout(plotTab);
+  plotLayout->setContentsMargins(5, 5, 5, 5);
+
+  m_plot = new ConvergencePlot(this);
+  plotLayout->addWidget(m_plot);
+
+  m_tabWidget->addTab(plotTab, "Convergence Plot");
+
+  mainLayout->addWidget(m_tabWidget);
 
   connect(m_runBtn, &QPushButton::clicked, this,
           &SmootherPage::runSolverRequested);
+}
+
+void SmootherPage::showOptions() {
+  if (m_tabWidget)
+    m_tabWidget->setCurrentIndex(0);
+}
+
+void SmootherPage::showPlot() {
+  if (m_tabWidget)
+    m_tabWidget->setCurrentIndex(1);
 }
 
 SmootherConfig SmootherPage::getConfig() const {

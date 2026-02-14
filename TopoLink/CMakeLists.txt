@@ -34,6 +34,7 @@ set(SOURCES
     src/main.cpp
     src/gui/MainWindow.cpp
     src/gui/OccView.cpp
+    src/gui/BannerWidget.cpp
     src/gui/pages/GeometryPage.cpp
     src/gui/pages/TopologyPage.cpp
     src/gui/pages/SmootherPage.cpp
@@ -51,6 +52,7 @@ set(SOURCES
 set(HEADERS
     src/gui/MainWindow.h
     src/gui/OccView.h
+    src/gui/BannerWidget.h
     src/gui/pages/GeometryPage.h
     src/gui/pages/TopologyPage.h
     src/gui/pages/SmootherPage.h

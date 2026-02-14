@@ -67,7 +67,20 @@ TopologyPage::TopologyPage(QWidget *parent) : QWidget(parent) {
 void TopologyPage::setupUI() {
   QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
-  // --- Selection Mode ---
+  // Create Tab Widget
+  m_tabWidget = new QTabWidget();
+  m_tabWidget->setStyleSheet(
+      "QTabWidget::pane { border: none; }"
+      "QLabel { color: #333333; background-color: transparent; }"
+      "QGroupBox { color: #333333; font-weight: bold; }"
+      "QCheckBox { color: #333333; }");
+
+  // --- Tab 1: Entities ---
+  QWidget *entitiesTab = new QWidget();
+  QVBoxLayout *entitiesLayout = new QVBoxLayout(entitiesTab);
+  entitiesLayout->setContentsMargins(5, 5, 5, 5);
+
+  // Selection Mode (keep in entities tab)
   QGroupBox *selModeGroupBox = new QGroupBox("Interaction Control");
   QHBoxLayout *selModeLayout = new QHBoxLayout(selModeGroupBox);
   selModeLayout->addWidget(new QLabel("Selection Mode:"));
@@ -77,14 +90,14 @@ void TopologyPage::setupUI() {
   m_selModeCombo->addItem("Faces", 2);
   selModeLayout->addWidget(m_selModeCombo);
   selModeLayout->addStretch();
-  mainLayout->addWidget(selModeGroupBox);
+  entitiesLayout->addWidget(selModeGroupBox);
 
-  // --- Entity Lists (read-only topology info) ---
+  // Entity Lists
   QGroupBox *entityBox = new QGroupBox("Topology Entities");
   QVBoxLayout *entityLayout = new QVBoxLayout(entityBox);
 
   QLabel *nodeLabel = new QLabel("Nodes", this);
-  nodeLabel->setStyleSheet("font-weight: bold;");
+  nodeLabel->setStyleSheet("font-weight: bold; background-color: transparent;");
   entityLayout->addWidget(nodeLabel);
   m_nodeList = new QListWidget(this);
   m_nodeList->setMaximumHeight(80);
@@ -92,7 +105,7 @@ void TopologyPage::setupUI() {
   entityLayout->addWidget(m_nodeList);
 
   QLabel *edgeLabel = new QLabel("Edges", this);
-  edgeLabel->setStyleSheet("font-weight: bold;");
+  edgeLabel->setStyleSheet("font-weight: bold; background-color: transparent;");
   entityLayout->addWidget(edgeLabel);
   m_edgeList = new QListWidget(this);
   m_edgeList->setMaximumHeight(80);
@@ -100,24 +113,22 @@ void TopologyPage::setupUI() {
   entityLayout->addWidget(m_edgeList);
 
   QLabel *faceLabel = new QLabel("Faces", this);
-  faceLabel->setStyleSheet("font-weight: bold;");
+  faceLabel->setStyleSheet("font-weight: bold; background-color: transparent;");
   entityLayout->addWidget(faceLabel);
   m_faceList = new QListWidget(this);
   m_faceList->setMaximumHeight(80);
   m_faceList->setSelectionMode(QAbstractItemView::ExtendedSelection);
   entityLayout->addWidget(m_faceList);
 
-  mainLayout->addWidget(entityBox);
+  entityLayout->addStretch();
+  entitiesLayout->addWidget(entityBox);
+  m_tabWidget->addTab(entitiesTab, "Entities");
 
-  // Connect entity list selection for highlighting
-  connect(m_faceList, &QListWidget::itemSelectionChanged, this,
-          [this]() { onFaceSelectionChanged(nullptr, nullptr); });
-  connect(m_edgeList, &QListWidget::itemSelectionChanged, this,
-          [this]() { onEdgeSelectionChanged(nullptr, nullptr); });
-  connect(m_nodeList, &QListWidget::itemSelectionChanged, this,
-          [this]() { onNodeSelectionChanged(nullptr, nullptr); });
+  // --- Tab 2: Groups ---
+  QWidget *groupsTab = new QWidget();
+  QVBoxLayout *groupsLayout = new QVBoxLayout(groupsTab);
+  groupsLayout->setContentsMargins(5, 5, 5, 5);
 
-  // --- Group Tables ---
   QGroupBox *groupBox = new QGroupBox("Topology Groups");
   QVBoxLayout *groupLayout = new QVBoxLayout(groupBox);
 
@@ -129,16 +140,23 @@ void TopologyPage::setupUI() {
                                             m_addFaceGroupBtn, m_faceGroupTable,
                                             m_faceGeoDelegate));
 
-  // Update Viewer Button
+  // Update Viewer Button inside Groups tab (or both? or outside?)
+  // Let's put it outside
+  groupsLayout->addWidget(groupBox);
+  groupsLayout->addStretch();
+  m_tabWidget->addTab(groupsTab, "Groups");
+
+  mainLayout->addWidget(m_tabWidget);
+
+  // Update Viewer Button (Global)
   m_updateBtn = new QPushButton("Update Viewer");
   m_updateBtn->setStyleSheet(
       "QPushButton { background-color: #4a90d9; color: white; padding: 8px; "
       "border-radius: 4px; font-weight: bold; } QPushButton:hover { "
       "background-color: #5aa0e9; } QPushButton:pressed { background-color: "
       "#3a80c9; }");
-  groupLayout->addWidget(m_updateBtn);
+  mainLayout->addWidget(m_updateBtn);
 
-  mainLayout->addWidget(groupBox);
   mainLayout->addStretch();
 
   // Connections
@@ -158,6 +176,24 @@ void TopologyPage::setupUI() {
             emit topologySelectionModeChanged(
                 m_selModeCombo->itemData(index).toInt());
           });
+
+  // Re-connect list signals (they were in the deleted block)
+  connect(m_faceList, &QListWidget::itemSelectionChanged, this,
+          [this]() { onFaceSelectionChanged(nullptr, nullptr); });
+  connect(m_edgeList, &QListWidget::itemSelectionChanged, this,
+          [this]() { onEdgeSelectionChanged(nullptr, nullptr); });
+  connect(m_nodeList, &QListWidget::itemSelectionChanged, this,
+          [this]() { onNodeSelectionChanged(nullptr, nullptr); });
+}
+
+void TopologyPage::showEntities() {
+  if (m_tabWidget)
+    m_tabWidget->setCurrentIndex(0);
+}
+
+void TopologyPage::showGroups() {
+  if (m_tabWidget)
+    m_tabWidget->setCurrentIndex(1);
 }
 
 QGroupBox *

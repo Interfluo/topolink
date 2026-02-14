@@ -36,66 +36,64 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // 1. Setup UI Layout
   resize(1200, 800);
-  m_occView = new OccView(this);
+
+  QWidget *centralWidget = new QWidget(this);
+  setCentralWidget(centralWidget);
+
+  QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
+  mainLayout->setSpacing(0);
+
+  // Banner
+  m_banner = new BannerWidget(this);
+  mainLayout->addWidget(m_banner);
+
+  // Content Area (Overlay Container)
+  // We need a container where OccView is the bottom layer, and Pages are
+  // transparent overlays on top. A clean way is to use a QGridLayout where
+  // everything occupies (0,0).
+  QWidget *viewContainer = new QWidget(this);
+  QGridLayout *viewLayout = new QGridLayout(viewContainer);
+  viewLayout->setContentsMargins(0, 0, 0, 0);
+
+  m_occView = new OccView(viewContainer);
   m_occView->setTopologyModel(m_topology);
-  setCentralWidget(m_occView);
 
-  // 2. Setup Docks
-  // Left Controls Dock
-  m_controlsDock = new QDockWidget("Workflow", this);
-  m_controlsDock->setAllowedAreas(Qt::LeftDockWidgetArea |
-                                  Qt::RightDockWidgetArea);
+  // Initialize Pages as independent tool windows
+  m_geometryPage = new GeometryPage(this);
+  m_geometryPage->setWindowFlags(Qt::Tool);
+  m_geometryPage->setWindowTitle("Geometry Groups");
+  m_geometryPage->hide();
 
-  // Create container for the dock
-  QWidget *dockContainer = new QWidget();
-  QVBoxLayout *dockLayout = new QVBoxLayout(dockContainer);
-  dockLayout->setContentsMargins(2, 2, 2, 2);
-  dockLayout->setSpacing(4);
+  m_topologyPage = new TopologyPage(this);
+  m_topologyPage->setWindowFlags(Qt::Tool);
+  m_topologyPage->setWindowTitle("Topology Toolkit");
+  m_topologyPage->hide();
 
-  // Page Title
-  m_pageTitle = new QLabel("Geometry Definition");
-  m_pageTitle->setStyleSheet(
-      "font-weight: bold; font-size: 14px; margin-bottom: 5px;");
-  m_pageTitle->setAlignment(Qt::AlignCenter);
-  dockLayout->addWidget(m_pageTitle);
+  m_smootherPage = new SmootherPage(this);
+  m_smootherPage->setWindowFlags(Qt::Tool);
+  m_smootherPage->setWindowTitle("Smoother Controls");
+  m_smootherPage->hide();
 
-  // Stacked Widget for Pages
-  m_pageStack = new QStackedWidget();
+  // Add OccView to grid
+  viewLayout->addWidget(m_occView, 0, 0);
 
-  // Initialize Pages
-  m_geometryPage = new GeometryPage();
-  m_topologyPage = new TopologyPage();
-  m_smootherPage = new SmootherPage();
+  mainLayout->addWidget(viewContainer);
 
-  m_pageStack->addWidget(m_geometryPage); // Index 0
-  m_pageStack->addWidget(m_topologyPage); // Index 1
-  m_pageStack->addWidget(m_smootherPage); // Index 2
+  // Connect Banner Signals
+  connect(m_banner, &BannerWidget::modeChanged, this,
+          &MainWindow::onPageChanged);
+  connect(m_banner, &BannerWidget::importRequested, this,
+          &MainWindow::onImportStp);
+  connect(m_banner, &BannerWidget::saveRequested, this,
+          &MainWindow::onSaveProject);
+  connect(m_banner, &BannerWidget::consoleToggleRequested, [this]() {
+    if (m_consoleDock)
+      m_consoleDock->setVisible(!m_consoleDock->isVisible());
+  });
 
-  // Wrap pages in a scroll area so dock content is scrollable
-  QScrollArea *scrollArea = new QScrollArea();
-  scrollArea->setWidget(m_pageStack);
-  scrollArea->setWidgetResizable(true);
-  scrollArea->setFrameShape(QFrame::NoFrame);
-  dockLayout->addWidget(scrollArea, 1); // stretch factor 1
-
-  // Navigation Buttons (outside scroll area — always visible)
-  QHBoxLayout *navLayout = new QHBoxLayout();
-  m_backBtn = new QPushButton("< Back");
-  m_nextBtn = new QPushButton("Next >");
-
-  // Style navigation buttons
-  m_nextBtn->setStyleSheet("font-weight: bold; padding: 5px;");
-  m_backBtn->setStyleSheet("padding: 5px;");
-
-  navLayout->addWidget(m_backBtn);
-  navLayout->addStretch();
-  navLayout->addWidget(m_nextBtn);
-
-  dockLayout->addLayout(navLayout);
-
-  dockContainer->setMinimumWidth(300);
-  m_controlsDock->setWidget(dockContainer);
-  addDockWidget(Qt::LeftDockWidgetArea, m_controlsDock);
+  // Configure initial view (Geometry)
+  // Note: we'll call onBannerModeChanged(0) at end of constructor
 
   // Connect geometry panel update signal
   connect(m_geometryPage, &GeometryPage::updateViewerRequested, this,
@@ -113,16 +111,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_topologyPage, &TopologyPage::topologySelectionModeChanged,
           m_occView, &OccView::setTopologySelectionMode);
 
-  connect(m_backBtn, &QPushButton::clicked, this, &MainWindow::onBackPage);
-  connect(m_nextBtn, &QPushButton::clicked, this, &MainWindow::onNextPage);
-  connect(m_pageStack, &QStackedWidget::currentChanged, this,
-          &MainWindow::onPageChanged);
-
-  // Connect workbench request from OccView HUD
+  // Workbench request from OccView HUD (Legacy, but keeping standard signals)
   connect(m_occView, &OccView::workbenchRequested, [this](int index) {
-    if (index >= 0 && index < m_pageStack->count()) {
-      m_pageStack->setCurrentIndex(index);
-    }
+    m_banner->setMode(index); // Sync banner
+    onPageChanged(index);     // Sync logic
   });
 
   connect(m_smootherPage, &SmootherPage::runSolverRequested, this,
@@ -153,12 +145,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     logMessage("Smoothing complete.");
   });
 
-  // Initial Update - Defer until end of constructor
-
   // Bottom Console Dock
   m_consoleDock = new QDockWidget("Console", this);
   m_consoleDock->setAllowedAreas(Qt::BottomDockWidgetArea |
                                  Qt::TopDockWidgetArea);
+  m_consoleDock->setFeatures(QDockWidget::DockWidgetClosable |
+                             QDockWidget::DockWidgetMovable |
+                             QDockWidget::DockWidgetFloatable);
   m_console = new QTextEdit();
   m_console->setReadOnly(true);
   m_consoleDock->setWidget(m_console);
@@ -172,7 +165,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // View Menu to toggle docks
   QMenu *viewMenu = menuBar()->addMenu("&View");
-  viewMenu->addAction(m_controlsDock->toggleViewAction());
+
   viewMenu->addAction(m_consoleDock->toggleViewAction());
 
   // 4. Connect Signals
@@ -364,16 +357,25 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // 5. Setup Keyboard Shortcuts
   // Workbench Selector
   QShortcut *rShortcut = new QShortcut(QKeySequence("R"), this);
-  connect(rShortcut, &QShortcut::activated,
-          [this]() { m_pageStack->setCurrentIndex(0); });
+  connect(rShortcut, &QShortcut::activated, [this]() {
+    if (m_banner)
+      m_banner->setMode(0);
+    onPageChanged(0);
+  });
 
   QShortcut *tShortcut = new QShortcut(QKeySequence("T"), this);
-  connect(tShortcut, &QShortcut::activated,
-          [this]() { m_pageStack->setCurrentIndex(1); });
+  connect(tShortcut, &QShortcut::activated, [this]() {
+    if (m_banner)
+      m_banner->setMode(1);
+    onPageChanged(1);
+  });
 
   QShortcut *yShortcut = new QShortcut(QKeySequence("Y"), this);
-  connect(yShortcut, &QShortcut::activated,
-          [this]() { m_pageStack->setCurrentIndex(2); });
+  connect(yShortcut, &QShortcut::activated, [this]() {
+    if (m_banner)
+      m_banner->setMode(2);
+    onPageChanged(2);
+  });
 
   // Note: Ctrl+F, Z, C shortcuts are still handled in
   // OccView::keyPressEvent for now, but Q, W, E and R, T, Y are managed
@@ -412,6 +414,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     }
   });
 
+  // Console Toggle Shortcut (Ctrl+`)
+  QShortcut *consoleShortcut = new QShortcut(QKeySequence("Ctrl+`"), this);
+  connect(consoleShortcut, &QShortcut::activated, [this]() {
+    if (m_consoleDock)
+      m_consoleDock->setVisible(!m_consoleDock->isVisible());
+  });
+
   // Initial Update
   onPageChanged(0);
 
@@ -425,79 +434,6 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::logMessage(const QString &msg) { m_console->append(msg); }
-
-void MainWindow::onNextPage() {
-  int nextIndex = m_pageStack->currentIndex() + 1;
-  if (nextIndex < m_pageStack->count()) {
-    m_pageStack->setCurrentIndex(nextIndex);
-  }
-}
-
-void MainWindow::onBackPage() {
-  int prevIndex = m_pageStack->currentIndex() - 1;
-  if (prevIndex >= 0) {
-    m_pageStack->setCurrentIndex(prevIndex);
-  }
-}
-
-void MainWindow::onPageChanged(int index) {
-  // Update Button States
-  m_backBtn->setEnabled(index > 0);
-  m_nextBtn->setEnabled(index < m_pageStack->count() - 1);
-
-  // Determine needed Interaction Mode
-  OccView::InteractionMode targetMode = OccView::Mode_Geometry;
-  if (index == 1)
-    targetMode = OccView::Mode_Topology;
-
-  // Update Title and Mode
-  switch (index) {
-  case 0:
-    m_pageTitle->setText("1. Geometry Definition");
-    logMessage("Switched to Geometry Page");
-    break;
-  case 1:
-    m_pageTitle->setText("2. Topology Definition");
-    logMessage("Switched to Topology Page");
-    // Sync groups
-    m_topologyPage->setGeometryGroupNames(
-        m_geometryPage->edgeGroups().isEmpty()
-            ? QStringList()
-            : [this]() {
-                QStringList names;
-                for (const auto &g : m_geometryPage->edgeGroups())
-                  names << g.name;
-                return names;
-              }(),
-        m_geometryPage->faceGroups().isEmpty()
-            ? QStringList()
-            : [this]() {
-                QStringList names;
-                for (const auto &g : m_geometryPage->faceGroups())
-                  names << g.name;
-                return names;
-              }());
-    break;
-  case 2:
-    m_pageTitle->setText("3. Smoother & Export");
-    logMessage("Switched to Smoother Page");
-    break;
-  }
-
-  // Set Mode and Workbench in correct order
-  m_occView->setInteractionMode(targetMode);
-  m_occView->setWorkbench(index);
-
-  if (index == 1) {
-    onUpdateTopologyGroups();
-  }
-
-  if (index == m_pageStack->count() - 1) {
-    m_nextBtn->setText("Finish");
-  } else {
-    m_nextBtn->setText("Next >");
-  }
-}
 
 void MainWindow::onSelectionModeChanged(int id) {
   if (m_occView) {
@@ -983,5 +919,112 @@ void MainWindow::onRunSolver() {
 
     logMessage("Running elliptic grid smoother...");
     m_occView->runEllipticSolver(m_smootherPage->getConfig());
+  }
+}
+
+void MainWindow::onPageChanged(int index) {
+  // 1. Update Banner (prevent signal loop if needed)
+  if (m_banner) {
+    m_banner->setMode(index);
+    m_banner->clearContextButtons();
+  }
+
+  // 2. Manage Tool Window Visibility
+  // Hide all first (Cleaner experience)
+  if (m_geometryPage)
+    m_geometryPage->hide();
+  if (m_topologyPage)
+    m_topologyPage->hide();
+  if (m_smootherPage)
+    m_smootherPage->hide();
+
+  // Add Context Buttons based on mode
+  if (index == 0) { // Geometry
+    if (m_banner) {
+      m_banner->addContextButton("Edge Groups", ":/resources/hud/edge.png",
+                                 [this]() {
+                                   m_geometryPage->show();
+                                   m_geometryPage->raise();
+                                   m_geometryPage->showEdgeGroups();
+                                 });
+      m_banner->addContextButton("Face Groups", ":/resources/hud/face.png",
+                                 [this]() {
+                                   m_geometryPage->show();
+                                   m_geometryPage->raise();
+                                   m_geometryPage->showFaceGroups();
+                                 });
+    }
+  } else if (index == 1) { // Topology
+    if (m_banner) {
+      m_banner->addContextButton("Entities", ":/resources/hud/topology.png",
+                                 [this]() {
+                                   m_topologyPage->show();
+                                   m_topologyPage->raise();
+                                   m_topologyPage->showEntities();
+                                 });
+      m_banner->addContextButton("Groups", ":/resources/hud/geometry.png",
+                                 [this]() {
+                                   m_topologyPage->show();
+                                   m_topologyPage->raise();
+                                   m_topologyPage->showGroups();
+                                 });
+    }
+  } else if (index == 2) { // Smoother
+    if (m_banner) {
+      m_banner->addContextButton("Options", ":/resources/hud/smoother.png",
+                                 [this]() {
+                                   m_smootherPage->show();
+                                   m_smootherPage->raise();
+                                   m_smootherPage->showOptions();
+                                 });
+      m_banner->addContextButton("Plot", ":/resources/hud/face.png", [this]() {
+        m_smootherPage->show();
+        m_smootherPage->raise();
+        m_smootherPage->showPlot();
+      });
+      m_banner->addContextButton("Run", ":/resources/MeshingApp.png",
+                                 [this]() { onRunSolver(); });
+    }
+  }
+
+  // 3. Update 3D View Interaction Mode
+  if (m_occView) {
+    // Mode 0: Geometry
+    if (index == 0) {
+      if (m_occView->getInteractionMode() != OccView::Mode_Geometry)
+        m_occView->setInteractionMode(OccView::Mode_Geometry);
+      m_occView->setWorkbench(0);
+    }
+    // Mode 1: Topology
+    else if (index == 1) {
+      // Ensure we have valid geometry loaded
+      if (m_faceMap->IsEmpty()) {
+        logMessage(
+            "Warning: No geometry loaded. Please import a STEP file first.");
+      }
+      if (m_occView->getInteractionMode() != OccView::Mode_Topology)
+        m_occView->setInteractionMode(OccView::Mode_Topology);
+
+      // We need to ensure topology visuals are present
+      restoreTopologyToView();
+
+      // Sync groups from Geometry Page to Topology Page
+      QStringList edgeNames;
+      for (const auto &g : m_geometryPage->edgeGroups())
+        edgeNames << g.name;
+      QStringList faceNames;
+      for (const auto &g : m_geometryPage->faceGroups())
+        faceNames << g.name;
+      m_topologyPage->setGeometryGroupNames(edgeNames, faceNames);
+
+      m_occView->setWorkbench(1);
+    }
+    // Mode 2: Smoother
+    else if (index == 2) {
+      if (m_occView->getInteractionMode() != OccView::Mode_Topology)
+        m_occView->setInteractionMode(OccView::Mode_Topology);
+
+      m_occView->setWorkbench(2);
+    }
   }
 }

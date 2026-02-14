@@ -298,33 +298,58 @@ QGroupBox *GeometryPage::createGroupSection(const QString &title,
 
 void GeometryPage::setupUI() {
   QVBoxLayout *mainLayout = new QVBoxLayout(this);
-  QGroupBox *geometryBox = new QGroupBox("Define Geometry Groups");
-  QVBoxLayout *geoLayout = new QVBoxLayout(geometryBox);
+  // Create Tab Widget
+  m_tabWidget = new QTabWidget();
+  m_tabWidget->setStyleSheet(
+      "QTabWidget::pane { border: none; }"
+      "QLabel { color: #333333; background-color: transparent; }"
+      "QGroupBox { color: #333333; font-weight: bold; }"
+      "QCheckBox { color: #333333; }"); // Clean look with dark text
 
-  geoLayout->addWidget(createGroupSection("Edge Groups", m_edgeModel,
-                                          m_addEdgeBtn, m_edgeTable));
-  geoLayout->addWidget(createGroupSection("Face Groups", m_faceModel,
-                                          m_addFaceBtn, m_faceTable));
+  // Tab 1: Edge Groups
+  QWidget *edgeTab = new QWidget();
+  QVBoxLayout *edgeLayout = new QVBoxLayout(edgeTab);
+  edgeLayout->setContentsMargins(5, 5, 5, 5);
+  edgeLayout->addWidget(createGroupSection("Edge Groups", m_edgeModel,
+                                           m_addEdgeBtn, m_edgeTable));
+  m_tabWidget->addTab(edgeTab, "Edge Groups");
 
+  // Tab 2: Face Groups
+  QWidget *faceTab = new QWidget();
+  QVBoxLayout *faceLayout = new QVBoxLayout(faceTab);
+  faceLayout->setContentsMargins(5, 5, 5, 5);
+  faceLayout->addWidget(createGroupSection("Face Groups", m_faceModel,
+                                           m_addFaceBtn, m_faceTable));
+  m_tabWidget->addTab(faceTab, "Face Groups");
+
+  mainLayout->addWidget(m_tabWidget);
+
+  // Controls below tabs
   m_updateBtn = new QPushButton("Update Viewer");
   m_updateBtn->setStyleSheet(
       "QPushButton { background-color: #4a90d9; color: white; padding: 8px; "
       "border-radius: 4px; font-weight: bold; } QPushButton:hover { "
       "background-color: #5aa0e9; } QPushButton:pressed { background-color: "
       "#3a80c9; }");
-  geoLayout->addWidget(m_updateBtn);
+  mainLayout->addWidget(m_updateBtn);
 
   QHBoxLayout *csvLayout = new QHBoxLayout();
   m_exportBtn = new QPushButton("Export CSV");
   m_importBtn = new QPushButton("Import CSV");
-  // m_exportBtn->setMaximumWidth(100);
-  // m_importBtn->setMaximumWidth(100);
+
+  // Simplify buttons for clean look
+  QString smallBtnStyle =
+      "QPushButton { background-color: transparent; border: 1px solid #666; "
+      "color: #ccc; padding: 4px; border-radius: 3px; } QPushButton:hover { "
+      "background-color: #444; }";
+  m_exportBtn->setStyleSheet(smallBtnStyle);
+  m_importBtn->setStyleSheet(smallBtnStyle);
+
   csvLayout->addWidget(m_exportBtn);
   csvLayout->addWidget(m_importBtn);
   csvLayout->addStretch();
-  geoLayout->addLayout(csvLayout);
+  mainLayout->addLayout(csvLayout);
 
-  mainLayout->addWidget(geometryBox);
   mainLayout->addStretch();
 
   connect(m_addEdgeBtn, &QPushButton::clicked, this,
@@ -339,4 +364,14 @@ void GeometryPage::setupUI() {
           &GeometryPage::onUpdateViewer);
   connect(m_exportBtn, &QPushButton::clicked, this, &GeometryPage::onExportCsv);
   connect(m_importBtn, &QPushButton::clicked, this, &GeometryPage::onImportCsv);
+}
+
+void GeometryPage::showEdgeGroups() {
+  if (m_tabWidget)
+    m_tabWidget->setCurrentIndex(0);
+}
+
+void GeometryPage::showFaceGroups() {
+  if (m_tabWidget)
+    m_tabWidget->setCurrentIndex(1);
 }

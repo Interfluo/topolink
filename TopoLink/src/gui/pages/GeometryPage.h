@@ -3,15 +3,19 @@
 #include "../GroupDelegates.h"
 
 #include <QAbstractTableModel>
+#include <QColor>
 #include <QComboBox>
 #include <QDebug>
 #include <QFileDialog>
 #include <QGroupBox>
 #include <QHeaderView>
+#include <QList>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
 #include <QSet>
+#include <QString>
+#include <QTabWidget>
 #include <QTableView>
 #include <QTextStream>
 #include <QVBoxLayout>
@@ -300,11 +304,16 @@ private slots:
   void onExportCsv();
   void onImportCsv();
 
+public slots:
+  void showEdgeGroups();
+  void showFaceGroups();
+
 private:
   void setupUI();
   QGroupBox *createGroupSection(const QString &title, GroupTableModel *model,
                                 QPushButton *&addButton, QTableView *&tableRef);
 
+  QTabWidget *m_tabWidget;
   GroupTableModel *m_edgeModel;
   GroupTableModel *m_faceModel;
   QTableView *m_edgeTable;

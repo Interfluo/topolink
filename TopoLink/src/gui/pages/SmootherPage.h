@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -25,9 +26,14 @@ public:
 signals:
   void runSolverRequested();
 
+public slots:
+  void showOptions();
+  void showPlot();
+
 private:
   void setupUI();
 
+  QTabWidget *m_tabWidget;
   ConvergencePlot *m_plot;
   QPushButton *m_runBtn;
   QLabel *m_statusLabel;

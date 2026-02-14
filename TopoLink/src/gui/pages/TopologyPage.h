@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
+#include <QTabWidget>
 #include <QTableView>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -371,6 +372,10 @@ signals:
   void nodeHighlightRequested(int id, bool highlight);
   void topologySelectionModeChanged(int mode);
 
+public slots:
+  void showEntities();
+  void showGroups();
+
 private slots:
   void onAddEdgeGroup();
   void onAddFaceGroup();
@@ -390,6 +395,8 @@ private:
                                 TopologyGroupTableModel *model,
                                 QPushButton *&addButton, QTableView *&tableRef,
                                 GeometryGroupDelegate *geoDelegate);
+
+  QTabWidget *m_tabWidget;
 
   // Entity lists (read-only info)
   QListWidget *m_nodeList;

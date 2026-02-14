@@ -211,17 +211,9 @@ private:
 
   // Selection mode overlay
   QComboBox *m_selectionCombo = nullptr;
-  // HUD Overlay
-  QWidget *m_hudWidget = nullptr;
-  QPushButton *m_btnF1 = nullptr;
-  QPushButton *m_btnF2 = nullptr;
-  QPushButton *m_btnF3 = nullptr;
-  QPushButton *m_btnQ = nullptr;
-  QPushButton *m_btnW = nullptr;
-  QPushButton *m_btnE = nullptr;
-  void createHUD();
-  void updateHUDStates();
+
   void createOverlay();
+  void updateHudHighlights();
 
   // Shape data for appearance control
   TopoDS_Shape m_shape;

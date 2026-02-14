@@ -531,11 +531,8 @@ void OccView::init() {
   m_view->TriedronDisplay(Aspect_TOTP_LEFT_LOWER, Quantity_NOC_WHITE, 0.1,
                           V3d_ZBUFFER);
 
-  // Enable keyboard focus
   setFocusPolicy(Qt::StrongFocus);
-
-  // Create HUD overlay
-  createHUD();
+  createOverlay();
 }
 
 void OccView::paintEvent(QPaintEvent *) {
@@ -547,12 +544,6 @@ void OccView::paintEvent(QPaintEvent *) {
 void OccView::resizeEvent(QResizeEvent *event) {
   if (!m_view.IsNull()) {
     m_view->MustBeResized();
-  }
-
-  if (m_hudWidget) {
-    // Positioning the HUD at the top-left of the view, fixed 15px offset
-    m_hudWidget->move(15, 15);
-    m_hudWidget->raise();
   }
 }
 
@@ -775,8 +766,6 @@ void OccView::setInteractionMode(InteractionMode mode) {
     // Explicitly activate geometry
     setSelectionMode(m_geometrySelectionMode);
   }
-
-  updateHUDStates();
 }
 
 int OccView::addTopologyNode(const gp_Pnt &p) {
@@ -794,11 +783,11 @@ int OccView::addTopologyNode(const gp_Pnt &p) {
   aisNode->Attributes()->SetPointAspect(pa);
 
   // FIX: Force highlight to use Mode 0 (the only mode points support)
-  // This overrides the global Selection Style which defaults to Mode 1 (Shaded)
+  // This overrides the global Selection Style which defaults to Mode 1
+  // (Shaded)
   aisNode->SetHilightMode(0);
 
   m_context->Display(aisNode, Standard_True);
-  m_context->SetZLayer(aisNode, Graphic3d_ZLayerId_Topmost);
   m_context->Activate(aisNode, 1, true);
 
   m_topologyNodes.insert(id, aisNode);
@@ -821,7 +810,6 @@ void OccView::restoreTopologyNode(int id, const gp_Pnt &p) {
 
   if (m_workbenchIndex == 1) {
     m_context->Display(aisNode, Standard_False); // Don't redraw yet
-    m_context->SetZLayer(aisNode, Graphic3d_ZLayerId_Topmost);
     m_context->Activate(aisNode, 1, true);
   } else {
     m_context->Erase(aisNode, Standard_False);
@@ -934,25 +922,25 @@ void OccView::updateConnectedEdges(int nodeId) {
       Handle(AIS_Line) aisLine = Handle(AIS_Line)::DownCast(it.value());
       if (!aisLine.IsNull()) {
         // We need to update the points. AIS_Line holds a Geom_Line, but
-        // SetPoints modifies the visual extent. However, AIS_Line stores points
-        // as handle to Geom_Point. Creating new points is the safest way to
-        // ensure update.
+        // SetPoints modifies the visual extent. However, AIS_Line stores
+        // points as handle to Geom_Point. Creating new points is the safest
+        // way to ensure update.
         Handle(Geom_CartesianPoint) pt1 = new Geom_CartesianPoint(pNode);
         Handle(Geom_CartesianPoint) pt2 = new Geom_CartesianPoint(pOther);
 
         // AIS_Line::SetPoints expects points that define the segment.
         // Does it auto-update the underlying line? Not necessarily.
         // We might need to replace the line aspect or the object itself if
-        // AIS_Line is rigid. Actually AIS_Line computes the line from points if
-        // provided? Let's check constructor: AIS_Line(Geom_Line). It seems best
-        // to update the underlying Geom_Line as well if we want correctness,
-        // but strictly for visualization, updating the points *might* be enough
-        // if AIS_Line uses them for presentation. Better: Create new line
-        // geometry and update the AIS_Line
+        // AIS_Line is rigid. Actually AIS_Line computes the line from points
+        // if provided? Let's check constructor: AIS_Line(Geom_Line). It seems
+        // best to update the underlying Geom_Line as well if we want
+        // correctness, but strictly for visualization, updating the points
+        // *might* be enough if AIS_Line uses them for presentation. Better:
+        // Create new line geometry and update the AIS_Line
 
-        // Correction: AIS_Line is usually infinite unless SetPoints is called.
-        // Let's try just updating the points first.
-        // Note: The order matters if we want to match internal start/end.
+        // Correction: AIS_Line is usually infinite unless SetPoints is
+        // called. Let's try just updating the points first. Note: The order
+        // matters if we want to match internal start/end.
         if (n1 == nodeId) {
           aisLine->SetPoints(pt1, pt2);
         } else {
@@ -1084,8 +1072,7 @@ void OccView::setSelectionMode(int mode) {
     m_context->Deactivate(m_aisShape);
     m_context->Activate(m_aisShape, aisMode);
   }
-
-  updateHUDStates();
+  updateHudHighlights();
 }
 
 void OccView::setTopologySelectionMode(int mode) {
@@ -1125,7 +1112,7 @@ void OccView::setTopologySelectionMode(int mode) {
           m_context->Deactivate(face);
       }
     }
-    updateHUDStates();
+    updateHudHighlights();
   }
 }
 
@@ -1417,8 +1404,8 @@ void OccView::addTopologyFace(const QList<int> &nodeIds) {
 
 Handle(AIS_InteractiveObject) OccView::buildFaceShape(
     const QList<int> &nodeIds) {
-  // 1. Clean up nodeIds: remove consecutive duplicates and ensure enough unique
-  // nodes
+  // 1. Clean up nodeIds: remove consecutive duplicates and ensure enough
+  // unique nodes
   QList<int> cleanIds;
   for (int id : nodeIds) {
     if (cleanIds.isEmpty() || cleanIds.last() != id) {
@@ -1456,8 +1443,8 @@ Handle(AIS_InteractiveObject) OccView::buildFaceShape(
     // Fallback if planar face creation fails
   }
 
-  // 4. Generic fallback: Triangulate (Triangle Fan) for non-planar or many-node
-  // polygons
+  // 4. Generic fallback: Triangulate (Triangle Fan) for non-planar or
+  // many-node polygons
   TopoDS_Compound compound;
   BRep_Builder builder;
   builder.MakeCompound(compound);
@@ -1688,8 +1675,8 @@ void OccView::mouseMoveEvent(QMouseEvent *event) {
       emit topologyNodeMoved(m_draggedNodeId, constrainedPos);
       m_view->Redraw();
     }
-    // Note: We don't return here because we want to allow hover detection while
-    // dragging
+    // Note: We don't return here because we want to allow hover detection
+    // while dragging
   }
 
   // Handle View Navigation vs Highlight/Hover
@@ -1823,140 +1810,8 @@ void OccView::contextMenuEvent(QContextMenuEvent *event) {
   }
 }
 
-void OccView::createHUD() {
-  if (m_hudWidget)
-    return;
-
-  // Create HUD as a standard child widget (no SubWindow flag)
-  m_hudWidget = new QWidget(this);
-  m_hudWidget->setAttribute(Qt::WA_TranslucentBackground);
-  m_hudWidget->setObjectName("hudWidget");
-
-  // Modern Glassmorphism Styling
-  m_hudWidget->setStyleSheet(
-      "QWidget#hudWidget { "
-      "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(45, "
-      "45, 48, 220), stop:1 rgba(30, 30, 33, 230)); "
-      "  border: 1px solid rgba(255, 255, 255, 40); "
-      "  border-radius: 12px; "
-      "} "
-      "QLabel { color: #aaaaaa; font-size: 10px; font-weight: bold; "
-      "text-transform: uppercase; margin-bottom: 2px; }");
-
-  QVBoxLayout *mainLayout = new QVBoxLayout(m_hudWidget);
-  mainLayout->setContentsMargins(12, 12, 12, 12);
-  mainLayout->setSpacing(8);
-
-  auto createButton = [](const QString &iconPath, const QString &tooltip) {
-    QPushButton *btn = new QPushButton();
-    btn->setIcon(QIcon(iconPath));
-    btn->setIconSize(QSize(24, 24));
-    btn->setFixedSize(40, 40);
-    btn->setCheckable(true);
-    btn->setToolTip(tooltip);
-    btn->setFocusPolicy(Qt::NoFocus);
-    btn->setStyleSheet("QPushButton { "
-                       "  background: rgba(255, 255, 255, 15); "
-                       "  color: #eeeeee; "
-                       "  border: 1px solid rgba(255, 255, 255, 25); "
-                       "  border-radius: 8px; "
-                       "} "
-                       "QPushButton:hover { "
-                       "  background: rgba(255, 255, 255, 30); "
-                       "  border-color: rgba(255, 255, 255, 80); "
-                       "} "
-                       "QPushButton:checked { "
-                       "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
-                       "stop:0 #0078d7, stop:1 #005a9e); "
-                       "  border: 1px solid rgba(255, 255, 255, 120); "
-                       "} "
-                       "QPushButton:disabled { "
-                       "  background: rgba(255, 255, 255, 5); "
-                       "  color: rgba(255, 255, 255, 40); "
-                       "  border-color: transparent; "
-                       "}");
-    return btn;
-  };
-
-  // Row 1 Section: Workbench
-  QLabel *lblWorkbench = new QLabel("Workbench (R-T-Y)");
-  mainLayout->addWidget(lblWorkbench);
-
-  QHBoxLayout *row1 = new QHBoxLayout();
-  row1->setSpacing(8);
-  m_btnF1 =
-      createButton(":/resources/hud/geometry.png", "R: Geometry (Workbench)");
-  m_btnF2 =
-      createButton(":/resources/hud/topology.png", "T: Topology (Workbench)");
-  m_btnF3 =
-      createButton(":/resources/hud/smoother.png", "Y: Smoother (Workbench)");
-  row1->addWidget(m_btnF1);
-  row1->addWidget(m_btnF2);
-  row1->addWidget(m_btnF3);
-  row1->addStretch();
-  mainLayout->addLayout(row1);
-
-  // Row 2 Section: Selection
-  QLabel *lblSelection = new QLabel("Selection Mode (Q-W-E)");
-  mainLayout->addWidget(lblSelection);
-
-  QHBoxLayout *row2 = new QHBoxLayout();
-  row2->setSpacing(8);
-  m_btnQ = createButton(":/resources/hud/node.png", "Q: Node Selection");
-  m_btnW = createButton(":/resources/hud/edge.png", "W: Edge Selection");
-  m_btnE = createButton(":/resources/hud/face.png", "E: Face Selection");
-  row2->addWidget(m_btnQ);
-  row2->addWidget(m_btnW);
-  row2->addWidget(m_btnE);
-  row2->addStretch();
-  mainLayout->addLayout(row2);
-
-  connect(m_btnF1, &QPushButton::clicked,
-          [this]() { emit workbenchRequested(0); });
-  connect(m_btnF2, &QPushButton::clicked,
-          [this]() { emit workbenchRequested(1); });
-  connect(m_btnF3, &QPushButton::clicked,
-          [this]() { emit workbenchRequested(2); });
-
-  connect(m_btnQ, &QPushButton::clicked, [this]() {
-    if (m_interactionMode == Mode_Geometry) {
-      setSelectionMode(1);
-      m_geometrySelectionMode = 1;
-      updateHUDStates();
-    } else {
-      setTopologySelectionMode(SelNodes);
-    }
-  });
-  connect(m_btnW, &QPushButton::clicked, [this]() {
-    if (m_interactionMode == Mode_Geometry) {
-      setSelectionMode(2);
-      m_geometrySelectionMode = 2;
-      updateHUDStates();
-    } else {
-      setTopologySelectionMode(SelEdges);
-    }
-  });
-  connect(m_btnE, &QPushButton::clicked, [this]() {
-    if (m_interactionMode == Mode_Geometry) {
-      setSelectionMode(4);
-      m_geometrySelectionMode = 4;
-      updateHUDStates();
-    } else {
-      setTopologySelectionMode(SelFaces);
-    }
-  });
-
-  updateHUDStates();
-
-  m_hudWidget->adjustSize();
-  m_hudWidget->move(15, 15);
-  m_hudWidget->show();
-  m_hudWidget->raise();
-}
-
 void OccView::setWorkbench(int index) {
   m_workbenchIndex = index;
-  updateHUDStates();
 
   if (m_context.IsNull())
     return;
@@ -2018,8 +1873,8 @@ void OccView::cycleSelection() {
   // something is under the mouse. However, for cycling, we often want to
   // iterate hits.
 
-  // AIS_InteractiveContext::InitDetected() etc provides access to what's under
-  // the cursor after the last MoveTo.
+  // AIS_InteractiveContext::InitDetected() etc provides access to what's
+  // under the cursor after the last MoveTo.
 
   if (!m_context->MoreDetected())
     return;
@@ -2188,44 +2043,115 @@ void OccView::selectAdjacents() {
     emit topologySelectionChanged();
   }
 }
-void OccView::updateHUDStates() {
-  if (!m_hudWidget)
-    return;
-
-  // Row 1: Workbench
-  m_btnF1->setChecked(m_workbenchIndex == 0);
-  m_btnF2->setChecked(m_workbenchIndex == 1);
-  m_btnF3->setChecked(m_workbenchIndex == 2);
-
-  // Row 2: Selection Mode
-  // Selection mode is only relevant for F1 (Geometry) and F2 (Topology)
-  // Constraint from functional spec: Row 2 disabled when F3 is active
-  bool allowSelection = (m_workbenchIndex != 2);
-
-  m_btnQ->setEnabled(allowSelection);
-  m_btnW->setEnabled(allowSelection);
-  m_btnE->setEnabled(allowSelection);
-
-  if (allowSelection) {
-    if (m_interactionMode == Mode_Geometry) {
-      m_btnQ->setChecked(m_geometrySelectionMode == 1);
-      m_btnW->setChecked(m_geometrySelectionMode == 2);
-      m_btnE->setChecked(m_geometrySelectionMode == 4);
-    } else {
-      m_btnQ->setChecked(m_topologySelectionMode == SelNodes);
-      m_btnW->setChecked(m_topologySelectionMode == SelEdges);
-      m_btnE->setChecked(m_topologySelectionMode == SelFaces);
-    }
-  } else {
-    m_btnQ->setChecked(false);
-    m_btnW->setChecked(false);
-    m_btnE->setChecked(false);
-  }
-}
 
 void OccView::createOverlay() {
-  // Legacy method, can be empty or call createHUD
-  createHUD();
+  // Create a floating overlay for selection modes
+  QWidget *overlay = new QWidget(this);
+  overlay->setAttribute(Qt::WA_TranslucentBackground);
+  overlay->setStyleSheet("background-color: rgba(45, 45, 48, 200); "
+                         "border: 1px solid #00ACC1; "
+                         "border-radius: 6px;");
+
+  QHBoxLayout *layout = new QHBoxLayout(overlay);
+  layout->setContentsMargins(5, 5, 5, 5);
+  layout->setSpacing(5);
+
+  auto createHudBtn = [this, overlay](const QString &text,
+                                      const QString &iconPath, int mode,
+                                      bool isTopology) {
+    QPushButton *btn = new QPushButton(overlay);
+    btn->setFixedSize(40, 40);
+    btn->setToolTip(text);
+    if (!iconPath.isEmpty()) {
+      btn->setIcon(QIcon(iconPath));
+      btn->setIconSize(QSize(24, 24));
+    } else {
+      btn->setText(text.left(1));
+    }
+
+    QString baseStyle =
+        "QPushButton { background-color: transparent; border: none; "
+        "border-radius: 4px; color: #AAA; } "
+        "QPushButton:hover { background-color: #3E3E42; } "
+        "QPushButton:checked { background-color: #00ACC1; color: white; }";
+    btn->setStyleSheet(baseStyle);
+    btn->setCheckable(true);
+
+    connect(btn, &QPushButton::clicked, [this, mode, isTopology]() {
+      if (isTopology)
+        setTopologySelectionMode(mode);
+      else
+        setSelectionMode(mode);
+    });
+
+    return btn;
+  };
+
+  // We'll store these in a member or just find them by property later
+  // For now let's just create them. We need to keep tracks of them to update
+  // check state. Actually, let's add them to a QButtonGroup or just use IDs.
+
+  // Actually, I should probably add member variables for these to OccView.h
+  // but I can also just find them. Let's use properties.
+
+  QPushButton *vBtn =
+      createHudBtn("Nodes (Q)", ":/resources/hud/topology.png", 0, true);
+  vBtn->setProperty("mode", 0);
+  vBtn->setProperty("isTopo", true);
+
+  QPushButton *eBtn =
+      createHudBtn("Edges (W)", ":/resources/hud/edge.png", 1, true);
+  eBtn->setProperty("mode", 1);
+  eBtn->setProperty("isTopo", true);
+
+  QPushButton *fBtn =
+      createHudBtn("Faces (E)", ":/resources/hud/face.png", 2, true);
+  fBtn->setProperty("mode", 2);
+  fBtn->setProperty("isTopo", true);
+
+  layout->addWidget(vBtn);
+  layout->addWidget(eBtn);
+  layout->addWidget(fBtn);
+
+  overlay->adjustSize();
+  // Position top-right
+  overlay->move(10, 10);
+  overlay->show();
+}
+
+void OccView::updateHudHighlights() {
+  // Find all buttons in the overlay and update their checked state
+  QList<QPushButton *> btns = findChildren<QPushButton *>();
+  for (QPushButton *btn : btns) {
+    QVariant modeV = btn->property("mode");
+    QVariant isTopoV = btn->property("isTopo");
+    if (!modeV.isValid())
+      continue;
+
+    int mode = modeV.toInt();
+    bool isTopo = isTopoV.toBool();
+
+    if (m_interactionMode == Mode_Topology) {
+      if (isTopo)
+        btn->setChecked(mode == (int)m_topologySelectionMode);
+      else
+        btn->setChecked(false);
+    } else {
+      if (!isTopo) {
+        // Map geometry modes
+        int currentAis = m_geometrySelectionMode;
+        btn->setChecked(mode == currentAis);
+      } else {
+        // Map Topo selection to Geometry visual
+        if (mode == 0)
+          btn->setChecked(m_geometrySelectionMode == 1);
+        else if (mode == 1)
+          btn->setChecked(m_geometrySelectionMode == 2);
+        else if (mode == 2)
+          btn->setChecked(m_geometrySelectionMode == 4);
+      }
+    }
+  }
 }
 
 // Selection logic is now handled by HUD Row 2 buttons (Q, W, E)
