@@ -13,6 +13,7 @@
 #include <TopoDS_Shape.hxx>
 #include <gp_Pnt.hxx>
 
+#include <QMutex>
 #include <QObject>
 
 class Topology;
@@ -93,6 +94,9 @@ private:
   void smoothEdges();
   void smoothFaces();
 
+  void smoothSingleEdge(int edgeId, TopoEdge *edge);
+  void smoothSingleFace(int faceId, TopoFace *face);
+
   // Helper to project point to shape
   gp_Pnt projectToShape(const gp_Pnt &p, const TopoDS_Shape &s);
 
@@ -113,6 +117,8 @@ private:
 
   // FaceID -> Vector of max displacement per iteration
   std::map<int, std::vector<double>> m_convergenceHistory;
+
+  mutable QMutex m_mutex;
 };
 
 #endif // SMOOTHER_H
