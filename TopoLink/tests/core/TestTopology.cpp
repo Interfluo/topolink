@@ -63,7 +63,7 @@ TEST_F(TopoTest, Grouping) {
   TopoNode *n2 = topology.createNode(gp_Pnt(1, 0, 0));
   TopoEdge *e1 = topology.createEdge(n1, n2);
 
-  TopoEdgeGroup *group = topology.createEdgeGroup("geo_edge_1");
+  TopoEdgeGroup *group = topology.createEdgeGroup("Group1", "geo_edge_1");
   ASSERT_NE(group, nullptr);
   EXPECT_EQ(group->geometryID, "geo_edge_1");
 

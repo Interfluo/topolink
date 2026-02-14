@@ -61,5 +61,7 @@ private:
   Topology *m_topology = nullptr;
   QString m_lastImportedStepPath;
 
+  QTimer *m_syncTimer;
+
   friend class ProjectManager;
 };

@@ -265,13 +265,8 @@ public:
   void addNodeToList(int id);
   void updateNodePosition(int id, double x, double y, double z);
 
-  // Group accessors
-  const QList<TopologyGroup> &edgeGroups() const {
-    return m_edgeGroupModel->groups();
-  }
-  const QList<TopologyGroup> &faceGroups() const {
-    return m_faceGroupModel->groups();
-  }
+  TopologyGroupTableModel *edgeGroupModel() const { return m_edgeGroupModel; }
+  TopologyGroupTableModel *faceGroupModel() const { return m_faceGroupModel; }
 
   void initializeDefaultGroups();
   void repopulateUnused();
@@ -281,6 +276,14 @@ public:
                              const QStringList &faceNames);
 
   void setAutoGroupUnused(bool autoGroup) { m_autoGroupUnused = autoGroup; }
+
+  void appendEdgeIdToGroup(int id, const QString &groupName) {
+    m_edgeGroupModel->appendIdToGroup(id, groupName);
+  }
+
+  void appendFaceIdToGroup(int id, const QString &groupName) {
+    m_faceGroupModel->appendIdToGroup(id, groupName);
+  }
 
   void setEdgeGroups(const QList<TopologyGroup> &groups) {
     m_edgeGroupModel->clearGroups();

@@ -20,6 +20,7 @@
 #include <AIS_ColoredShape.hxx>
 #include <AIS_Shape.hxx>
 #include <QDebug>
+#include <QTimer>
 #include <STEPControl_Reader.hxx>
 #include <TopAbs.hxx>
 #include <TopExp.hxx>
@@ -35,6 +36,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   m_topology = new Topology();
 
   // 1. Setup UI Layout
+  m_syncTimer = new QTimer(this);
+  m_syncTimer->setSingleShot(true);
+  connect(m_syncTimer, &QTimer::timeout, this,
+          &MainWindow::onUpdateTopologyGroups);
+
   resize(1200, 800);
 
   QWidget *centralWidget = new QWidget(this);
@@ -100,8 +106,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::onUpdateGeometryGroups);
 
   // Connect topology panel signals
-  connect(m_topologyPage, &TopologyPage::updateViewerRequested, this,
-          &MainWindow::onUpdateTopologyGroups);
+  connect(m_topologyPage, &TopologyPage::updateViewerRequested,
+          [this]() { m_syncTimer->start(50); });
   connect(m_topologyPage, &TopologyPage::faceHighlightRequested, m_occView,
           &OccView::highlightTopologyFace);
   connect(m_topologyPage, &TopologyPage::edgeHighlightRequested, m_occView,
@@ -110,6 +116,21 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &OccView::highlightTopologyNode);
   connect(m_topologyPage, &TopologyPage::topologySelectionModeChanged,
           m_occView, &OccView::setTopologySelectionMode);
+
+  // Auto-sync UI groups to Core
+  auto startSync = [this]() { m_syncTimer->start(50); };
+  connect(m_topologyPage->edgeGroupModel(), &QAbstractItemModel::dataChanged,
+          startSync);
+  connect(m_topologyPage->edgeGroupModel(), &QAbstractItemModel::rowsInserted,
+          startSync);
+  connect(m_topologyPage->edgeGroupModel(), &QAbstractItemModel::rowsRemoved,
+          startSync);
+  connect(m_topologyPage->faceGroupModel(), &QAbstractItemModel::dataChanged,
+          startSync);
+  connect(m_topologyPage->faceGroupModel(), &QAbstractItemModel::rowsInserted,
+          startSync);
+  connect(m_topologyPage->faceGroupModel(), &QAbstractItemModel::rowsRemoved,
+          startSync);
 
   // Workbench request from OccView HUD (Legacy, but keeping standard signals)
   connect(m_occView, &OccView::workbenchRequested, [this](int index) {
@@ -202,6 +223,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
               // Also update UI Page
               m_topologyPage->onNodeCreated(id, 0, 0,
                                             0); // params unused in UI list
+              m_syncTimer->start(50);
             }
           });
 
@@ -217,6 +239,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     if (m_topology) {
       m_topology->deleteNode(id);
       m_topologyPage->onNodeDeleted(id);
+      m_syncTimer->start(50);
     }
   });
 
@@ -228,6 +251,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
       }
     }
     m_topologyPage->onEdgeDeleted(n1, n2);
+    m_syncTimer->start(50);
   });
 
   connect(m_occView, &OccView::topologyFaceDeleted, [this](int id) {
@@ -235,6 +259,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
       m_topology->deleteFace(id);
     }
     m_topologyPage->onFaceDeleted(id);
+    m_syncTimer->start(50);
   });
 
   connect(m_occView, &OccView::topologySelectionChanged, [this]() {
@@ -245,13 +270,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   connect(m_occView, &OccView::topologyEdgeCreated,
           [this](int n1, int n2, int id) {
-            if (m_topology) {
+            if (m_topology && m_topologyPage) {
               TopoNode *node1 = m_topology->getNode(n1);
               TopoNode *node2 = m_topology->getNode(n2);
               if (node1 && node2) {
-                m_topology->createEdgeWithID(id, node1, node2);
+                // Only create in Core if it doesn't already exist.
+                // During a Split, the Core model is already up to date.
+                if (!m_topology->getEdge(id)) {
+                  m_topology->createEdgeWithID(id, node1, node2);
+                }
                 m_topologyPage->onEdgeCreated(n1, n2, id);
+
+                // SYNC CORE -> UI: Check if this new edge belongs to a group in
+                // Core (e.g. inherited from parent). If so, add to UI group.
+                TopoEdgeGroup *coreGroup = m_topology->getGroupForEdge(id);
+                if (coreGroup) {
+                  if (!coreGroup->name.empty()) {
+                    m_topologyPage->appendEdgeIdToGroup(
+                        id, QString::fromStdString(coreGroup->name));
+                  }
+                }
               }
+              m_syncTimer->start(50);
             }
           });
 
@@ -260,11 +300,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   connect(m_occView, &OccView::topologyFaceCreated,
           [this](int id, const QList<int> &nodeIds) {
-            // MainWindow should NOT update the core model here.
-            // The signal comes FROM the view/model update, so the face already
-            // exists. We only need to update the UI page.
+            if (m_topology && m_topologyPage) {
+              // MainWindow should NOT update the core model here for splits.
+              // For interactive creation, OccView handles core creation now.
+              m_topologyPage->onFaceCreated(id, nodeIds);
 
-            m_topologyPage->onFaceCreated(id, nodeIds);
+              // SYNC CORE -> UI: Check for group inheritance
+              TopoFaceGroup *coreGroup = m_topology->getGroupForFace(id);
+              if (coreGroup && !coreGroup->name.empty()) {
+                m_topologyPage->appendFaceIdToGroup(
+                    id, QString::fromStdString(coreGroup->name));
+              }
+
+              m_syncTimer->start(50);
+            }
           });
 
   connect(m_occView, &OccView::topologyNodeSelected, m_topologyPage,
@@ -346,6 +395,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
               QString("Merged node %1 into node %2").arg(removeId).arg(keepId));
           m_topologyPage->onNodesMerged(keepId, removeId);
           qDebug() << "MainWindow: Finished merge orchestration.";
+          m_syncTimer->start(50);
         }
       });
 
@@ -660,6 +710,61 @@ void MainWindow::onUpdateTopologyGroups() {
   logMessage("Updating topology groups and derivation constraints...");
   qDebug() << "MainWindow: onUpdateTopologyGroups starting...";
 
+  // SYNC UI -> CORE
+  // Ensure the Core model knows about the current UI groups so that
+  // operations like splitEdge can inherit specific group memberships.
+  for (const TopologyGroup &group :
+       m_topologyPage->edgeGroupModel()->groups()) {
+    std::string groupName = group.name.toStdString();
+    if (groupName.empty()) {
+      qDebug() << "MainWindow: Skipping nameless Edge Group";
+      continue;
+    }
+    if (groupName == "Unused")
+      continue; // Don't sync Unused, handle dynamically
+
+    TopoEdgeGroup *coreGroup = m_topology->getEdgeGroupByName(groupName);
+    if (!coreGroup) {
+      // Create if missing
+      qDebug() << "MainWindow: Creating Core Edge Group" << group.name;
+      coreGroup = m_topology->createEdgeGroup(
+          groupName, group.linkedGeometryGroup.toStdString());
+    }
+    // Update contents (brute force sync for now, clear and re-add)
+    // Core struct uses vector, so clear it
+    coreGroup->edges.clear();
+    for (int id : group.ids) {
+      TopoEdge *e = m_topology->getEdge(id);
+      if (e) {
+        m_topology->addEdgeToGroup(coreGroup->id, e);
+      }
+    }
+  }
+  for (const TopologyGroup &group :
+       m_topologyPage->faceGroupModel()->groups()) {
+    std::string groupName = group.name.toStdString();
+    if (groupName.empty()) {
+      qDebug() << "MainWindow: Skipping nameless Face Group";
+      continue;
+    }
+    if (groupName == "Unused")
+      continue;
+
+    TopoFaceGroup *coreGroup = m_topology->getFaceGroupByName(groupName);
+    if (!coreGroup) {
+      qDebug() << "MainWindow: Creating Core Face Group" << group.name;
+      coreGroup = m_topology->createFaceGroup(
+          groupName, group.linkedGeometryGroup.toStdString());
+    }
+    coreGroup->faces.clear();
+    for (int id : group.ids) {
+      TopoFace *f = m_topology->getFace(id);
+      if (f) {
+        m_topology->addFaceToGroup(coreGroup->id, f);
+      }
+    }
+  }
+
   // Derive node constraints from group links
   QMap<int, OccView::NodeConstraint> newNodeConstraints;
 
@@ -684,7 +789,8 @@ void MainWindow::onUpdateTopologyGroups() {
   };
 
   // Apply topology edge groups
-  for (const TopologyGroup &group : m_topologyPage->edgeGroups()) {
+  for (const TopologyGroup &group :
+       m_topologyPage->edgeGroupModel()->groups()) {
     if (group.ids.isEmpty())
       continue;
 
@@ -724,7 +830,8 @@ void MainWindow::onUpdateTopologyGroups() {
   }
 
   // Apply topology face groups
-  for (const TopologyGroup &group : m_topologyPage->faceGroups()) {
+  for (const TopologyGroup &group :
+       m_topologyPage->faceGroupModel()->groups()) {
     if (group.ids.isEmpty())
       continue;
 
@@ -866,7 +973,7 @@ void MainWindow::onRunSolver() {
     m_topology->clearGroups();
 
     // 1. Sync Face Groups
-    for (const auto &g : m_topologyPage->faceGroups()) {
+    for (const auto &g : m_topologyPage->faceGroupModel()->groups()) {
       QString geoIdsStr;
       if (!g.linkedGeometryGroup.isEmpty()) {
         const GeometryGroup *gg =
@@ -878,7 +985,8 @@ void MainWindow::onRunSolver() {
           geoIdsStr = sl.join(",");
         }
       }
-      TopoFaceGroup *fg = m_topology->createFaceGroup(geoIdsStr.toStdString());
+      TopoFaceGroup *fg = m_topology->createFaceGroup(g.name.toStdString(),
+                                                      geoIdsStr.toStdString());
       for (int fid : g.ids) {
         TopoFace *f = m_topology->getFace(fid);
         if (f)
@@ -887,7 +995,7 @@ void MainWindow::onRunSolver() {
     }
 
     // 2. Sync Edge Groups
-    for (const auto &g : m_topologyPage->edgeGroups()) {
+    for (const auto &g : m_topologyPage->edgeGroupModel()->groups()) {
       QString geoIdsStr;
       if (!g.linkedGeometryGroup.isEmpty()) {
         const GeometryGroup *gg =
@@ -899,7 +1007,8 @@ void MainWindow::onRunSolver() {
           geoIdsStr = sl.join(",");
         }
       }
-      TopoEdgeGroup *eg = m_topology->createEdgeGroup(geoIdsStr.toStdString());
+      TopoEdgeGroup *eg = m_topology->createEdgeGroup(g.name.toStdString(),
+                                                      geoIdsStr.toStdString());
       for (int eid : g.ids) {
         TopoEdge *e = m_topology->getEdge(eid);
         if (e)

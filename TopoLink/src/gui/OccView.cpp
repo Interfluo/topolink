@@ -1912,17 +1912,15 @@ void OccView::contextMenuEvent(QContextMenuEvent *event) {
           // but for other systems listening (like property panels) it might be
           // good. However, we must be careful not to trigger double-deletes in
           // protection logic.
-          /*
           for (int eid : oldEdgeIds) {
             if (newEdgeIds.find(eid) == newEdgeIds.end()) {
               auto endpoints = oldEdgeEndpoints[eid];
-              qDebug() << "OccView: Emitting topologyEdgeDeleted for edge" <<
-          eid
-                       << "(" << endpoints.first << "->" << endpoints.second <<
-          ")"; emit topologyEdgeDeleted(endpoints.first, endpoints.second);
+              qDebug() << "OccView: Emitting topologyEdgeDeleted for edge"
+                       << eid << "(" << endpoints.first << "->"
+                       << endpoints.second << ")";
+              emit topologyEdgeDeleted(endpoints.first, endpoints.second);
             }
           }
-          */
 
           for (int fid : oldFaceIds) {
             if (newFaceIds.find(fid) == newFaceIds.end()) {
@@ -2523,23 +2521,37 @@ void OccView::rebuildTopologyVisualization() {
   qDebug() << "  Rebuilding Faces...";
   int maxFaceId = 0;
   for (const auto &[faceId, face] : m_topologyModel->getFaces()) {
+    // qDebug() << "    Processing Face" << faceId;
     const auto &edges = face->getEdges();
-    if (edges.empty())
+    if (edges.empty()) {
+      qDebug() << "    Face" << faceId << "has no edges. Skipping.";
       continue;
+    }
 
     std::vector<int> nodeIds;
     TopoHalfEdge *startHE = face->getBoundary();
     if (startHE) {
       TopoHalfEdge *he = startHE;
+      int safety = 0;
       do {
         if (he->origin)
           nodeIds.push_back(he->origin->getID());
         he = he->next;
+        if (++safety > 100) {
+          qDebug() << "    Face" << faceId
+                   << "infinite loop in boundary traversal.";
+          break;
+        }
       } while (he && he != startHE);
+    } else {
+      qDebug() << "    Face" << faceId << "has no boundary half-edge.";
     }
 
-    if (nodeIds.size() < 3)
+    if (nodeIds.size() < 3) {
+      qDebug() << "    Face" << faceId << "has fewer than 3 nodes ("
+               << nodeIds.size() << "). Skipping.";
       continue;
+    }
 
     QList<int> qNodeIds;
     for (int nid : nodeIds)
@@ -2548,7 +2560,12 @@ void OccView::rebuildTopologyVisualization() {
     Handle(AIS_InteractiveObject) aisFace;
     try {
       aisFace = buildFaceShape(qNodeIds);
+    } catch (Standard_Failure const &e) {
+      qDebug() << "    Error building face" << faceId << ":"
+               << e.GetMessageString();
+      continue;
     } catch (...) {
+      qDebug() << "    Unknown Error building face" << faceId;
       continue;
     }
 
@@ -2565,6 +2582,8 @@ void OccView::rebuildTopologyVisualization() {
         m_context->Display(aisFace, Standard_False);
         m_context->SetZLayer(aisFace, Graphic3d_ZLayerId_Top);
       }
+    } else {
+      qDebug() << "    buildFaceShape returned NULL for Face" << faceId;
     }
     maxFaceId = std::max(maxFaceId, faceId);
   }

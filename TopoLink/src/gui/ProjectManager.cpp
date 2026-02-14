@@ -63,12 +63,14 @@ bool ProjectManager::saveProject(const QString &filePath) {
 
   // 4. Topology Groups (from TopologyPage)
   QJsonObject topoFaceGroups;
-  for (const auto &group : m_mainWindow->m_topologyPage->faceGroups()) {
+  for (const auto &group :
+       m_mainWindow->m_topologyPage->faceGroupModel()->groups()) {
     QJsonObject g;
     QJsonArray ids;
     for (int id : group.ids)
       ids.append(id);
     g["face_ids"] = ids;
+    g["name"] = group.name;
     g["color"] = QJsonArray(
         {group.color.red(), group.color.green(), group.color.blue()});
     g["geometry_id"] = group.linkedGeometryGroup;
@@ -77,12 +79,14 @@ bool ProjectManager::saveProject(const QString &filePath) {
   root["topo_face_groups"] = topoFaceGroups;
 
   QJsonObject topoEdgeGroups;
-  for (const auto &group : m_mainWindow->m_topologyPage->edgeGroups()) {
+  for (const auto &group :
+       m_mainWindow->m_topologyPage->edgeGroupModel()->groups()) {
     QJsonObject g;
     QJsonArray ids;
     for (int id : group.ids)
       ids.append(id);
     g["edge_ids"] = ids;
+    g["name"] = group.name;
     g["color"] = QJsonArray(
         {group.color.red(), group.color.green(), group.color.blue()});
     g["geometry_id"] = group.linkedGeometryGroup;

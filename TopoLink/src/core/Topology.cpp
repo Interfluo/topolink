@@ -701,6 +701,17 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
   std::vector<EdgeSplitData> splitData;
   splitData.reserve(edgesToSplit.size());
 
+  // Pre-calculate edge group map
+  std::map<int, std::vector<int>> edgeGroupMap; // edge ID -> group IDs
+  for (const auto &[gid, group] : _edgeGroups) {
+    if (group) {
+      for (TopoEdge *e : group->edges) {
+        if (e)
+          edgeGroupMap[e->getID()].push_back(gid);
+      }
+    }
+  }
+
   // Phase 1: Create all new nodes and edges
   for (int eid : edgesToSplit) {
     TopoEdge *oldEdge = getEdge(eid);
@@ -737,6 +748,16 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
     // Create two new edges
     data.newEdge1 = createEdge(start, data.newNode);
     data.newEdge2 = createEdge(data.newNode, end);
+
+    // Inherit Edge Groups
+    if (edgeGroupMap.count(eid)) {
+      for (int gid : edgeGroupMap[eid]) {
+        addEdgeToGroup(gid, data.newEdge1);
+        addEdgeToGroup(gid, data.newEdge2);
+        logFile << "      Inherited Group " << gid << " for new edges"
+                << std::endl;
+      }
+    }
 
     // Inherit subdivisions
     int subdivs = oldEdge->getSubdivisions();
@@ -1081,77 +1102,6 @@ void Topology::deleteChord(DimensionChord *chord) {
 // Group Management
 // ---------------------------------------------------------------------------
 
-TopoEdgeGroup *Topology::createEdgeGroup(const std::string &geometryID) {
-  int id = generateID();
-  auto group = std::make_unique<TopoEdgeGroup>();
-  group->id = id;
-  group->geometryID = geometryID;
-  TopoEdgeGroup *ptr = group.get();
-  _edgeGroups[id] = std::move(group);
-  return ptr;
-}
-
-TopoFaceGroup *Topology::createFaceGroup(const std::string &geometryID) {
-  int id = generateID();
-  auto group = std::make_unique<TopoFaceGroup>();
-  group->id = id;
-  group->geometryID = geometryID;
-  TopoFaceGroup *ptr = group.get();
-  _faceGroups[id] = std::move(group);
-  return ptr;
-}
-
-void Topology::addEdgeToGroup(int groupID, TopoEdge *edge) {
-  auto it = _edgeGroups.find(groupID);
-  if (it != _edgeGroups.end() && edge) {
-    it->second->edges.push_back(edge);
-  }
-}
-
-void Topology::addFaceToGroup(int groupID, TopoFace *face) {
-  auto it = _faceGroups.find(groupID);
-  if (it != _faceGroups.end() && face) {
-    it->second->faces.push_back(face);
-  }
-}
-
-TopoEdgeGroup *Topology::getEdgeGroup(int id) const {
-  auto it = _edgeGroups.find(id);
-  if (it != _edgeGroups.end()) {
-    return it->second.get();
-  }
-  return nullptr;
-}
-
-TopoFaceGroup *Topology::getFaceGroup(int id) const {
-  auto it = _faceGroups.find(id);
-  if (it != _faceGroups.end()) {
-    return it->second.get();
-  }
-  return nullptr;
-}
-
-std::string Topology::getFaceGeometryID(int faceId) const {
-  TopoFace *face = getFace(faceId);
-  if (!face)
-    return "";
-
-  for (const auto &groupPair : _faceGroups) {
-    const auto &group = groupPair.second;
-    for (TopoFace *f : group->faces) {
-      if (f == face) {
-        return group->geometryID;
-      }
-    }
-  }
-  return "";
-}
-
-void Topology::clearGroups() {
-  _edgeGroups.clear();
-  _faceGroups.clear();
-}
-
 // ---------------------------------------------------------------------------
 // Serialization
 // ---------------------------------------------------------------------------
@@ -1245,6 +1195,7 @@ QJsonObject Topology::toJson() const {
   QJsonObject edgeGroupsObj;
   for (const auto &[id, group] : _edgeGroups) {
     QJsonObject g;
+    g["name"] = QString::fromStdString(group->name);
     g["geometry_id"] = QString::fromStdString(group->geometryID);
     QJsonArray edgeIds;
     for (TopoEdge *edge : group->edges) {
@@ -1259,6 +1210,7 @@ QJsonObject Topology::toJson() const {
   QJsonObject faceGroupsObj;
   for (const auto &[id, group] : _faceGroups) {
     QJsonObject g;
+    g["name"] = QString::fromStdString(group->name);
     g["geometry_id"] = QString::fromStdString(group->geometryID);
     QJsonArray faceIds;
     for (TopoFace *face : group->faces) {
@@ -1379,8 +1331,20 @@ void Topology::fromJson(const QJsonObject &json) {
     for (auto it = groupsObj.begin(); it != groupsObj.end(); ++it) {
       int id = it.key().toInt();
       QJsonObject g = it.value().toObject();
+
+      std::string name = g["name"].toString().toStdString();
+      if (name.empty()) {
+        // Fallback: If name field is missing, maybe the key itself is the name
+        // (ProjectManager used to save this way)
+        bool ok;
+        it.key().toInt(&ok);
+        if (!ok) {
+          name = it.key().toStdString();
+        }
+      }
+
       TopoEdgeGroup *group =
-          createEdgeGroup(g["geometry_id"].toString().toStdString());
+          createEdgeGroup(name, g["geometry_id"].toString().toStdString());
 
       if (group->id != id) {
         auto itGroup = _edgeGroups.find(group->id);
@@ -1389,7 +1353,6 @@ void Topology::fromJson(const QJsonObject &json) {
           _edgeGroups.erase(itGroup);
           ptr->id = id;
           _edgeGroups[id] = std::move(ptr);
-          group = _edgeGroups[id].get();
         }
       }
 
@@ -1406,8 +1369,18 @@ void Topology::fromJson(const QJsonObject &json) {
     for (auto it = groupsObj.begin(); it != groupsObj.end(); ++it) {
       int id = it.key().toInt();
       QJsonObject g = it.value().toObject();
+
+      std::string name = g["name"].toString().toStdString();
+      if (name.empty()) {
+        bool ok;
+        it.key().toInt(&ok);
+        if (!ok) {
+          name = it.key().toStdString();
+        }
+      }
+
       TopoFaceGroup *group =
-          createFaceGroup(g["geometry_id"].toString().toStdString());
+          createFaceGroup(name, g["geometry_id"].toString().toStdString());
 
       if (group->id != id) {
         auto itGroup = _faceGroups.find(group->id);
@@ -1416,7 +1389,6 @@ void Topology::fromJson(const QJsonObject &json) {
           _faceGroups.erase(itGroup);
           ptr->id = id;
           _faceGroups[id] = std::move(ptr);
-          group = _faceGroups[id].get();
         }
       }
 
@@ -1426,4 +1398,126 @@ void Topology::fromJson(const QJsonObject &json) {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Group Management
+// ---------------------------------------------------------------------------
+
+TopoEdgeGroup *Topology::createEdgeGroup(const std::string &name,
+                                         const std::string &geometryID) {
+  int id = generateID();
+  auto group = std::make_unique<TopoEdgeGroup>();
+  group->id = id;
+  group->name = name;
+  group->geometryID = geometryID;
+  _edgeGroups[id] = std::move(group);
+  return _edgeGroups[id].get();
+}
+
+TopoFaceGroup *Topology::createFaceGroup(const std::string &name,
+                                         const std::string &geometryID) {
+  int id = generateID();
+  auto group = std::make_unique<TopoFaceGroup>();
+  group->id = id;
+  group->name = name;
+  group->geometryID = geometryID;
+  _faceGroups[id] = std::move(group);
+  return _faceGroups[id].get();
+}
+
+void Topology::addEdgeToGroup(int groupID, TopoEdge *edge) {
+  if (_edgeGroups.count(groupID)) {
+    _edgeGroups[groupID]->edges.push_back(edge);
+  }
+}
+
+void Topology::addFaceToGroup(int groupID, TopoFace *face) {
+  if (_faceGroups.count(groupID)) {
+    _faceGroups[groupID]->faces.push_back(face);
+  }
+}
+
+TopoEdgeGroup *Topology::getEdgeGroup(int id) const {
+  auto it = _edgeGroups.find(id);
+  if (it != _edgeGroups.end()) {
+    return it->second.get();
+  }
+  return nullptr;
+}
+
+TopoFaceGroup *Topology::getFaceGroup(int id) const {
+  auto it = _faceGroups.find(id);
+  if (it != _faceGroups.end()) {
+    return it->second.get();
+  }
+  return nullptr;
+}
+
+TopoEdgeGroup *Topology::getEdgeGroupByName(const std::string &name) const {
+  for (const auto &pair : _edgeGroups) {
+    if (pair.second->name == name) {
+      return pair.second.get();
+    }
+  }
+  return nullptr;
+}
+
+TopoFaceGroup *Topology::getFaceGroupByName(const std::string &name) const {
+  for (const auto &pair : _faceGroups) {
+    if (pair.second->name == name) {
+      return pair.second.get();
+    }
+  }
+  return nullptr;
+}
+
+TopoEdgeGroup *Topology::getGroupForEdge(int edgeId) const {
+  qDebug() << "Topology::getGroupForEdge(" << edgeId << ") searching"
+           << _edgeGroups.size() << "groups";
+  for (auto const &pair : _edgeGroups) {
+    qDebug() << "  Checking Group" << pair.second->name.c_str() << "with"
+             << pair.second->edges.size() << "edges";
+    for (TopoEdge *e : pair.second->edges) {
+      if (e && e->getID() == edgeId) {
+        qDebug() << "    FOUND edge" << edgeId << "in group"
+                 << pair.second->name.c_str();
+        return pair.second.get();
+      }
+    }
+  }
+  return nullptr;
+}
+
+TopoFaceGroup *Topology::getGroupForFace(int faceId) const {
+  qDebug() << "Topology::getGroupForFace(" << faceId << ") searching"
+           << _faceGroups.size() << "groups";
+  for (auto const &pair : _faceGroups) {
+    qDebug() << "  Checking Group" << pair.second->name.c_str() << "with"
+             << pair.second->faces.size() << "faces";
+    for (TopoFace *f : pair.second->faces) {
+      if (f && f->getID() == faceId) {
+        qDebug() << "    FOUND face" << faceId << "in group"
+                 << pair.second->name.c_str();
+        return pair.second.get();
+      }
+    }
+  }
+  return nullptr;
+}
+
+std::string Topology::getFaceGeometryID(int faceId) const {
+  for (auto const &pair : _faceGroups) {
+    for (TopoFace *f : pair.second->faces) {
+      if (f->getID() == faceId) {
+        return pair.second->geometryID;
+      }
+    }
+  }
+  return "";
+}
+
+void Topology::clearGroups() {
+  _edgeGroups.clear();
+  _faceGroups.clear();
 }

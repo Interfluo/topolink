@@ -63,3 +63,11 @@ MeshingApp
 render_config.json.user
 *.igs
 *.stp
+
+# llm files
+.claude
+.gemini
+.codex
+ToDo.md
+usercontrols.md
+EDGE_SPLIT*.md

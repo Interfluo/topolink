@@ -6,7 +6,7 @@ import platform
 
 def main():
     # Define paths
-    project_root =  os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.abspath(__file__))
     source_dir = os.path.join(project_root, "TopoLink")
     build_dir = os.path.join(project_root, "build")
 

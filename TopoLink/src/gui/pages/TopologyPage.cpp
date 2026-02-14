@@ -520,6 +520,8 @@ void TopologyPage::onEdgeDeleted(int n1, int n2) {
     QListWidgetItem *item = m_edgeList->item(i);
     QString t = item->text();
     if (t.contains(pattern1) || t.contains(pattern2)) {
+      int id = item->data(Qt::UserRole).toInt();
+      m_edgeGroupModel->removeIdFromAllGroups(id);
       delete m_edgeList->takeItem(i);
       repopulateUnused();
       break;
@@ -533,6 +535,7 @@ void TopologyPage::onFaceDeleted(int id) {
   for (int i = 0; i < m_faceList->count(); ++i) {
     QListWidgetItem *item = m_faceList->item(i);
     if (item->data(Qt::UserRole).toInt() == id) {
+      m_faceGroupModel->removeIdFromAllGroups(id);
       delete m_faceList->takeItem(i);
       repopulateUnused();
       break;

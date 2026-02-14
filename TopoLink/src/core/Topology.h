@@ -19,12 +19,14 @@ class QJsonObject;
 // Grouping structures
 struct TopoEdgeGroup {
   int id;
+  std::string name;       // Added for UI sync
   std::string geometryID; // Link to geometry constraint
   std::vector<TopoEdge *> edges;
 };
 
 struct TopoFaceGroup {
   int id;
+  std::string name;       // Added for UI sync
   std::string geometryID; // Link to geometry constraint
   std::vector<TopoFace *> faces;
 };
@@ -84,12 +86,18 @@ public:
   void deleteChord(DimensionChord *chord);
 
   // Group Management
-  TopoEdgeGroup *createEdgeGroup(const std::string &geometryID);
-  TopoFaceGroup *createFaceGroup(const std::string &geometryID);
+  TopoEdgeGroup *createEdgeGroup(const std::string &name,
+                                 const std::string &geometryID);
+  TopoFaceGroup *createFaceGroup(const std::string &name,
+                                 const std::string &geometryID);
   void addEdgeToGroup(int groupID, TopoEdge *edge);
   void addFaceToGroup(int groupID, TopoFace *face);
   TopoEdgeGroup *getEdgeGroup(int id) const;
   TopoFaceGroup *getFaceGroup(int id) const;
+  TopoEdgeGroup *getEdgeGroupByName(const std::string &name) const;
+  TopoFaceGroup *getFaceGroupByName(const std::string &name) const;
+  TopoEdgeGroup *getGroupForEdge(int edgeId) const;
+  TopoFaceGroup *getGroupForFace(int faceId) const;
   std::string getFaceGeometryID(int faceId) const;
   void clearGroups();
 
