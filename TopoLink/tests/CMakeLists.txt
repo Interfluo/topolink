@@ -19,6 +19,7 @@ add_executable(unit_tests
     ../src/core/TopoEdge.cpp
     ../src/core/TopoFace.cpp
     ../src/core/Topology.cpp
+    test_edge_split.cpp
 )
 
 target_include_directories(unit_tests PRIVATE

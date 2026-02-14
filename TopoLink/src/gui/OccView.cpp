@@ -23,6 +23,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRep_Builder.hxx>
@@ -1411,6 +1412,26 @@ void OccView::addTopologyFace(const QList<int> &nodeIds) {
   createFaceVisual(id, nodeIds);
   m_faceNodeMap.insert(id, nodeIds);
 
+  // Restore core model update for interactive creation
+  if (m_topologyModel) {
+    std::vector<TopoEdge *> edges;
+    for (int i = 0; i < nodeIds.size(); ++i) {
+      int n1 = nodeIds[i];
+      int n2 = nodeIds[(i + 1) % nodeIds.size()];
+      TopoEdge *edge = m_topologyModel->getEdge(n1, n2);
+      if (edge) {
+        edges.push_back(edge);
+      } else {
+        qDebug() << "OccView: Error - Edge not found for nodes" << n1 << n2;
+      }
+    }
+    if (edges.size() == (size_t)nodeIds.size()) {
+      m_topologyModel->createFaceWithID(id, edges);
+    } else {
+      qDebug() << "OccView: Error - partial edges for face" << id;
+    }
+  }
+
   emit topologyFaceCreated(id, nodeIds);
 }
 
@@ -1794,7 +1815,8 @@ void OccView::contextMenuEvent(QContextMenuEvent *event) {
   QPair<int, int> edgeNodes = qMakePair(-1, -1);
   int edgeId = -1;
 
-  qDebug() << "  Detected object, searching in" << m_topologyEdges.size() << "edges";
+  qDebug() << "  Detected object, searching in" << m_topologyEdges.size()
+           << "edges";
   for (auto it = m_topologyEdges.begin(); it != m_topologyEdges.end(); ++it) {
     if (it.value() == detectedObj) {
       edgeNodes = it.key();
@@ -1829,7 +1851,8 @@ void OccView::contextMenuEvent(QContextMenuEvent *event) {
     } else if (selectedAction == splitEdge) {
       qDebug() << "OccView: Split Edge menu selected. edgeId =" << edgeId;
       TopoEdge *edge = m_topologyModel->getEdge(edgeId);
-      qDebug() << "OccView: getEdge returned" << (edge ? "valid edge" : "nullptr");
+      qDebug() << "OccView: getEdge returned"
+               << (edge ? "valid edge" : "nullptr");
       if (edge) {
         qDebug() << "OccView: Edge found, opening dialog...";
         m_activeSplitEdgeId = edgeId;
@@ -1844,10 +1867,120 @@ void OccView::contextMenuEvent(QContextMenuEvent *event) {
           double t = dlg.getNormalizedValue();
           qDebug() << "OccView: User accepted split dialog. edgeId =" << edgeId
                    << "t =" << t;
+
+          // Track which entities exist before split
+          std::set<int> oldNodeIds;
+          std::set<int> oldEdgeIds;
+          std::set<int> oldFaceIds;
+          std::map<int, std::pair<int, int>>
+              oldEdgeEndpoints; // edge ID -> (n1, n2)
+
+          for (const auto &[nid, node] : m_topologyModel->getNodes()) {
+            oldNodeIds.insert(nid);
+          }
+          for (const auto &[eid, edge] : m_topologyModel->getEdges()) {
+            oldEdgeIds.insert(eid);
+            oldEdgeEndpoints[eid] = {edge->getStartNode()->getID(),
+                                     edge->getEndNode()->getID()};
+          }
+          for (const auto &[fid, face] : m_topologyModel->getFaces()) {
+            oldFaceIds.insert(fid);
+          }
+
           qDebug() << "OccView: Calling splitEdge...";
           TopoNode *result = m_topologyModel->splitEdge(edgeId, t);
           qDebug() << "OccView: splitEdge returned"
                    << (result ? "a new node" : "nullptr");
+
+          // Track which entities exist after split
+          std::set<int> newNodeIds;
+          std::set<int> newEdgeIds;
+          std::set<int> newFaceIds;
+
+          for (const auto &[nid, node] : m_topologyModel->getNodes()) {
+            newNodeIds.insert(nid);
+          }
+          for (const auto &[eid, edge] : m_topologyModel->getEdges()) {
+            newEdgeIds.insert(eid);
+          }
+          for (const auto &[fid, face] : m_topologyModel->getFaces()) {
+            newFaceIds.insert(fid);
+          }
+
+          // Emit deletion signals for removed entities
+          // NOTE: We don't strictly need to emit these if we do a full rebuild,
+          // but for other systems listening (like property panels) it might be
+          // good. However, we must be careful not to trigger double-deletes in
+          // protection logic.
+          /*
+          for (int eid : oldEdgeIds) {
+            if (newEdgeIds.find(eid) == newEdgeIds.end()) {
+              auto endpoints = oldEdgeEndpoints[eid];
+              qDebug() << "OccView: Emitting topologyEdgeDeleted for edge" <<
+          eid
+                       << "(" << endpoints.first << "->" << endpoints.second <<
+          ")"; emit topologyEdgeDeleted(endpoints.first, endpoints.second);
+            }
+          }
+          */
+
+          for (int fid : oldFaceIds) {
+            if (newFaceIds.find(fid) == newFaceIds.end()) {
+              qDebug() << "OccView: Emitting topologyFaceDeleted for face"
+                       << fid;
+              emit topologyFaceDeleted(fid);
+            }
+          }
+
+          // Emit creation signals for new entities
+          for (int nid : newNodeIds) {
+            if (oldNodeIds.find(nid) == oldNodeIds.end()) {
+              qDebug() << "OccView: Emitting topologyNodeCreated for node"
+                       << nid;
+              emit topologyNodeCreated(nid, 0, 0, 0);
+            }
+          }
+
+          for (int eid : newEdgeIds) {
+            if (oldEdgeIds.find(eid) == oldEdgeIds.end()) {
+              TopoEdge *edge = m_topologyModel->getEdge(eid);
+              if (edge) {
+                int n1 = edge->getStartNode()->getID();
+                int n2 = edge->getEndNode()->getID();
+                qDebug() << "OccView: Emitting topologyEdgeCreated for edge"
+                         << eid << "(" << n1 << "->" << n2 << ")";
+                emit topologyEdgeCreated(n1, n2, eid);
+              }
+            }
+          }
+
+          // Emit creation signals for new faces
+          for (int fid : newFaceIds) {
+            if (oldFaceIds.find(fid) == oldFaceIds.end()) {
+              TopoFace *face = m_topologyModel->getFace(fid);
+              if (face) {
+                QList<int> nodeIds;
+                // Collect node IDs from face edges
+                std::set<int> uniqueNodes;
+                for (TopoEdge *e : face->getEdges()) {
+                  int n1 = e->getStartNode()->getID();
+                  int n2 = e->getEndNode()->getID();
+                  if (uniqueNodes.find(n1) == uniqueNodes.end()) {
+                    nodeIds.append(n1);
+                    uniqueNodes.insert(n1);
+                  }
+                  if (uniqueNodes.find(n2) == uniqueNodes.end()) {
+                    nodeIds.append(n2);
+                    uniqueNodes.insert(n2);
+                  }
+                }
+                qDebug() << "OccView: Emitting topologyFaceCreated for face"
+                         << fid;
+                emit topologyFaceCreated(fid, nodeIds);
+              }
+            }
+          }
+
           qDebug() << "OccView: Calling rebuildTopologyVisualization...";
           rebuildTopologyVisualization(); // Rebuild visualization after split
           qDebug() << "OccView: Done rebuilding. Emitting signal...";
@@ -2290,33 +2423,43 @@ void OccView::rebuildTopologyVisualization() {
   qDebug() << "rebuildTopologyVisualization: Starting rebuild";
 
   // 1. Clear existing topology visualization
-  for (auto node : m_topologyNodes) {
-    m_context->Remove(node, Standard_False);
+  qDebug() << "  Clearing " << m_topologyNodes.size() << " nodes";
+  for (auto it = m_topologyNodes.begin(); it != m_topologyNodes.end(); ++it) {
+    if (!it.value().IsNull()) {
+      m_context->Remove(it.value(), Standard_False);
+    }
   }
   m_topologyNodes.clear();
 
-  for (auto edge : m_topologyEdges) {
-    m_context->Remove(edge, Standard_False);
+  qDebug() << "  Clearing " << m_topologyEdges.size() << " edges";
+  for (auto it = m_topologyEdges.begin(); it != m_topologyEdges.end(); ++it) {
+    if (!it.value().IsNull()) {
+      m_context->Remove(it.value(), Standard_False);
+    }
   }
   m_topologyEdges.clear();
   m_edgeIdMap.clear();
   m_nodePairToEdgeIdMap.clear();
 
-  for (auto face : m_topologyFaces) {
-    m_context->Remove(face, Standard_False);
+  qDebug() << "  Clearing " << m_topologyFaces.size() << " faces";
+  for (auto it = m_topologyFaces.begin(); it != m_topologyFaces.end(); ++it) {
+    if (!it.value().IsNull()) {
+      m_context->Remove(it.value(), Standard_False);
+    }
   }
   m_topologyFaces.clear();
   m_faceNodeMap.clear();
 
   // 2. Rebuild nodes from topology model
+  qDebug() << "  Rebuilding Nodes...";
   for (const auto &[nodeId, node] : m_topologyModel->getNodes()) {
     gp_Pnt pos = node->getPosition();
     Handle(Geom_CartesianPoint) geomPt = new Geom_CartesianPoint(pos);
     Handle(AIS_Point) aisNode = new AIS_Point(geomPt);
     aisNode->SetColor(Quantity_NOC_RED);
     aisNode->Attributes()->SetPointAspect(
-        new Prs3d_PointAspect(Aspect_TOM_O, Quantity_NOC_RED, 2.0));
-    aisNode->SetOwner(new EntityOwner(aisNode, nodeId, EntityType_Node));
+        new Prs3d_PointAspect(Aspect_TOM_BALL, Quantity_NOC_RED, m_nodeSize));
+    aisNode->SetOwner(new EntityOwner(nodeId));
 
     if (m_workbenchIndex == 1) { // Topology workbench
       m_context->Display(aisNode, Standard_False);
@@ -2325,7 +2468,7 @@ void OccView::rebuildTopologyVisualization() {
   }
 
   // 3. Rebuild edges from topology model
-  // Use topology edge IDs as GUI edge IDs
+  qDebug() << "  Rebuilding Edges...";
   int maxEdgeId = 0;
   for (const auto &[edgeId, edge] : m_topologyModel->getEdges()) {
     int n1Id = edge->getStartNode()->getID();
@@ -2333,21 +2476,35 @@ void OccView::rebuildTopologyVisualization() {
     gp_Pnt p1 = edge->getStartNode()->getPosition();
     gp_Pnt p2 = edge->getEndNode()->getPosition();
 
+    // qDebug() << "    Processing Edge" << edgeId;
+
+    if (p1.SquareDistance(p2) < 1e-12) {
+      qDebug() << "  Error: Edge" << edgeId << " has zero length! Skipping.";
+      continue;
+    }
+
     Handle(Geom_CartesianPoint) geomPt1 = new Geom_CartesianPoint(p1);
     Handle(Geom_CartesianPoint) geomPt2 = new Geom_CartesianPoint(p2);
-    Handle(AIS_Line) aisLine = new AIS_Line(geomPt1, geomPt2);
-    aisLine->SetColor(Quantity_NOC_WHITE);
-    aisLine->SetWidth(2.0);
-    aisLine->SetOwner(new EntityOwner(aisLine, edgeId, EntityType_Edge));
+    Handle(AIS_Line) aisLine;
+    try {
+      aisLine = new AIS_Line(geomPt1, geomPt2);
+    } catch (Standard_Failure const &e) {
+      qDebug() << "  Error building edge" << edgeId << ": "
+               << e.GetMessageString();
+      continue;
+    } catch (...) {
+      qDebug() << "  Unknown Error building edge" << edgeId;
+      continue;
+    }
+    aisLine->SetColor(Quantity_NOC_RED);
+    aisLine->SetWidth(m_edgeWidth);
+    aisLine->SetOwner(new EntityOwner(edgeId));
 
     auto key = qMakePair(qMin(n1Id, n2Id), qMax(n1Id, n2Id));
     m_topologyEdges.insert(key, aisLine);
-
-    // Use topology edge ID as GUI edge ID (they must match for context menu)
     m_edgeIdMap.insert(edgeId, key);
     m_nodePairToEdgeIdMap.insert(key, edgeId);
 
-    // Apply existing edge styles if any
     if (m_edgeStyles.contains(edgeId)) {
       const auto &style = m_edgeStyles[edgeId];
       Quantity_Color occColor(style.color.redF(), style.color.greenF(),
@@ -2355,83 +2512,66 @@ void OccView::rebuildTopologyVisualization() {
       aisLine->SetColor(occColor);
     }
 
-    if (m_workbenchIndex == 1) { // Topology workbench
+    if (m_workbenchIndex == 1) {
       m_context->Display(aisLine, Standard_False);
     }
-
     maxEdgeId = std::max(maxEdgeId, edgeId);
   }
   m_nextEdgeId = maxEdgeId + 1;
 
   // 4. Rebuild faces from topology model
-  // Use topology face IDs as GUI face IDs
+  qDebug() << "  Rebuilding Faces...";
   int maxFaceId = 0;
   for (const auto &[faceId, face] : m_topologyModel->getFaces()) {
     const auto &edges = face->getEdges();
     if (edges.empty())
       continue;
 
-    // Collect unique nodes from face edges
     std::vector<int> nodeIds;
-    std::set<int> uniqueNodes;
-    for (TopoEdge *e : edges) {
-      int n1 = e->getStartNode()->getID();
-      int n2 = e->getEndNode()->getID();
-      if (uniqueNodes.find(n1) == uniqueNodes.end()) {
-        nodeIds.push_back(n1);
-        uniqueNodes.insert(n1);
-      }
-      if (uniqueNodes.find(n2) == uniqueNodes.end()) {
-        nodeIds.push_back(n2);
-        uniqueNodes.insert(n2);
-      }
+    TopoHalfEdge *startHE = face->getBoundary();
+    if (startHE) {
+      TopoHalfEdge *he = startHE;
+      do {
+        if (he->origin)
+          nodeIds.push_back(he->origin->getID());
+        he = he->next;
+      } while (he && he != startHE);
     }
 
     if (nodeIds.size() < 3)
       continue;
 
-    // Create face visualization
-    TColgp_Array1OfPnt points(1, nodeIds.size());
-    for (size_t i = 0; i < nodeIds.size(); ++i) {
-      TopoNode *node = m_topologyModel->getNode(nodeIds[i]);
-      if (node) {
-        points.SetValue(i + 1, node->getPosition());
-      }
-    }
+    QList<int> qNodeIds;
+    for (int nid : nodeIds)
+      qNodeIds.append(nid);
 
-    Handle(Geom_BSplineSurface) surf;
+    Handle(AIS_InteractiveObject) aisFace;
     try {
-      GeomAPI_PointsToBSplineSurface builder(points, 1, 1);
-      if (builder.IsDone()) {
-        surf = builder.Surface();
-      }
+      aisFace = buildFaceShape(qNodeIds);
     } catch (...) {
       continue;
     }
 
-    if (!surf.IsNull()) {
-      TopoDS_Face topoFace = BRepBuilderAPI_MakeFace(surf, 1e-6);
-      Handle(AIS_Shape) aisFace = new AIS_Shape(topoFace);
-      aisFace->SetColor(Quantity_NOC_GRAY75);
-      aisFace->SetTransparency(0.7);
-      aisFace->SetOwner(new EntityOwner(aisFace, faceId, EntityType_Face));
+    if (!aisFace.IsNull()) {
+      aisFace->SetOwner(new EntityOwner(faceId));
+      aisFace->SetColor(Quantity_NOC_RED);
+      aisFace->SetTransparency(0.4);
+      m_context->SetDisplayMode(aisFace, 1, Standard_False);
 
-      // Use topology face ID as GUI face ID
       m_topologyFaces.insert(faceId, aisFace);
-      m_faceNodeMap.insert(faceId, nodeIds);
+      m_faceNodeMap.insert(faceId, qNodeIds);
 
-      if (m_workbenchIndex == 1) { // Topology workbench
+      if (m_workbenchIndex == 1) {
         m_context->Display(aisFace, Standard_False);
+        m_context->SetZLayer(aisFace, Graphic3d_ZLayerId_Top);
       }
-
-      maxFaceId = std::max(maxFaceId, faceId);
     }
+    maxFaceId = std::max(maxFaceId, faceId);
   }
   m_nextFaceId = maxFaceId + 1;
 
-  qDebug() << "rebuildTopologyVisualization: Rebuilt"
-           << m_topologyNodes.size() << "nodes,"
-           << m_topologyEdges.size() << "edges,"
+  qDebug() << "rebuildTopologyVisualization: Rebuilt" << m_topologyNodes.size()
+           << "nodes," << m_topologyEdges.size() << "edges,"
            << m_topologyFaces.size() << "faces";
 
   m_context->UpdateCurrentViewer();

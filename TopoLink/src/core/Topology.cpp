@@ -3,9 +3,12 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <unordered_set>
+
+#include <gp_Pnt.hxx>
 
 Topology::Topology() : _nextId(1) {}
 
@@ -341,13 +344,8 @@ bool Topology::mergeNodes(int keepId, int removeId) {
     }
   }
 
-  // 5. Delete degenerate faces
-  for (int faceId : facesToDelete) {
-    deleteFace(faceId);
-    affectedFaceIds.erase(faceId);
-  }
-
-  // 6. Delete edges (bypass deleteEdge cascade since faces are handled above)
+  // Phase 4: Delete all old edges
+  // ... (bypass deleteEdge cascade since faces are handled above)
   for (int edgeId : edgesToDelete) {
     TopoEdge *edge = getEdge(edgeId);
     if (!edge)
@@ -609,6 +607,12 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
 
   qDebug() << "splitEdge: Starting split of edge" << edgeId << "at t =" << t;
 
+  // Write to file to confirm code is running
+  std::ofstream logFile("/tmp/edge_split_log.txt", std::ios::app);
+  logFile << "=== SPLIT EDGE CALLED ===" << std::endl;
+  logFile << "Edge ID: " << edgeId << ", t: " << t << std::endl;
+  // Keep logFile open for logging throughout the function
+
   // Find all parallel edges that need to be split together
   // using the same propagation logic as propagateSubdivisions
   std::unordered_set<int> visited;
@@ -631,8 +635,8 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
     std::vector<TopoHalfEdge *> hes = {currEdge->getForwardHalfEdge(),
                                        currEdge->getBackwardHalfEdge()};
 
-    qDebug() << "  Edge" << currId << "- Forward HE:"
-             << (hes[0] ? "exists" : "null")
+    qDebug() << "  Edge" << currId
+             << "- Forward HE:" << (hes[0] ? "exists" : "null")
              << "Backward HE:" << (hes[1] ? "exists" : "null");
 
     for (TopoHalfEdge *he : hes) {
@@ -647,8 +651,8 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
 
       // Only propagate through QUAD faces (structured mesh assumption)
       auto faceEdges = he->face->getEdges();
-      qDebug() << "    Face" << he->face->getID() << "has"
-               << faceEdges.size() << "edges";
+      qDebug() << "    Face" << he->face->getID() << "has" << faceEdges.size()
+               << "edges";
 
       if (faceEdges.size() == 4) {
         // Find the opposite edge in the quad
@@ -682,6 +686,9 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
   qDebug() << "splitEdge: Found" << edgesToSplit.size()
            << "parallel edges to split";
 
+  logFile << "Found " << edgesToSplit.size() << " parallel edges to split"
+          << std::endl;
+
   // Track all edges and their split results for batch processing
   struct EdgeSplitData {
     int oldEdgeId;
@@ -713,6 +720,15 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
     gp_Vec v(p1, p2);
     gp_Pnt pNew = p1.Translated(v * t);
 
+    logFile << "    Split Edge " << eid << " (Nodes " << start->getID() << "->"
+            << end->getID() << ") t=" << t << std::endl;
+    logFile << "      p1: " << p1.X() << ", " << p1.Y() << ", " << p1.Z()
+            << std::endl;
+    logFile << "      p2: " << p2.X() << ", " << p2.Y() << ", " << p2.Z()
+            << std::endl;
+    logFile << "      pNew: " << pNew.X() << ", " << pNew.Y() << ", "
+            << pNew.Z() << std::endl;
+
     // Create new node
     data.newNode = createNode(pNew);
     // Transfer constraint if any
@@ -741,28 +757,209 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
     splitData.push_back(data);
   }
 
-  // Phase 2: Update all affected faces
-  std::set<int> facesToRebuild;
-  for (const auto &data : splitData) {
-    for (int fid : data.affectedFaceIds) {
-      TopoFace *face = getFace(fid);
-      if (face) {
-        face->splitEdge(data.oldEdge, data.newEdge1, data.newEdge2);
-        facesToRebuild.insert(fid);
+  // Phase 2: Subdivide faces (create connecting edges and new faces)
+  std::set<int> facesToDelete;
+  std::map<int, std::vector<int>> faceGroupMap; // old face ID -> group IDs
+
+  // Track which faces have which edge groups
+  for (const auto &[fid, faceGroup] : _faceGroups) {
+    for (TopoFace *face : faceGroup->faces) {
+      faceGroupMap[face->getID()].push_back(fid);
+    }
+  }
+
+  // Group splits by face
+  std::map<int, std::vector<int>> faceToSplitIndices;
+  for (size_t i = 0; i < splitData.size(); i++) {
+    for (int fid : splitData[i].affectedFaceIds) {
+      faceToSplitIndices[fid].push_back(i);
+    }
+  }
+
+  logFile << "Processing " << faceToSplitIndices.size() << " faces"
+          << std::endl;
+
+  // Process each affected face
+  for (const auto &[fid, splitIndices] : faceToSplitIndices) {
+    TopoFace *face = getFace(fid);
+    if (!face) {
+      logFile << "  Face " << fid << " not found!" << std::endl;
+      continue;
+    }
+
+    const auto &faceEdges = face->getEdges();
+    logFile << "  Face " << fid << " has " << faceEdges.size() << " edges and "
+            << splitIndices.size() << " splits" << std::endl;
+
+    // Only handle quad faces with 2 splits (parallel edges)
+    if (faceEdges.size() == 4 && splitIndices.size() == 2) {
+      logFile << "  -> Subdividing quad face " << fid << std::endl;
+
+      const auto &split0 = splitData[splitIndices[0]];
+      const auto &split1 = splitData[splitIndices[1]];
+
+      // Create connecting edge
+      TopoEdge *connectingEdge = createEdge(split0.newNode, split1.newNode);
+      logFile << "  Created connecting edge " << connectingEdge->getID()
+              << std::endl;
+
+      // Find perpendicular edges (not being split)
+      std::vector<TopoEdge *> perpEdges;
+      for (TopoEdge *e : faceEdges) {
+        if (e != split0.oldEdge && e != split1.oldEdge) {
+          perpEdges.push_back(e);
+        }
+      }
+
+      logFile << "  Found " << perpEdges.size() << " perpendicular edges"
+              << std::endl;
+
+      // Robustly identify the two loops for the new faces
+      // We have:
+      // - split0 (with newEdge1, newEdge2, newNode)
+      // - split1 (with newEdge1, newEdge2, newNode)
+      // - connectingEdge (between split0.newNode and split1.newNode)
+      // - 2 perpendicular edges from the original face (perpEdges)
+
+      // Helper to find the perp edge connected to a specific node
+      auto findConnectedPerp = [&](TopoNode *node) -> TopoEdge * {
+        for (TopoEdge *e : perpEdges) {
+          if (e->getStartNode() == node || e->getEndNode() == node) {
+            return e;
+          }
+        }
+        return nullptr;
+      };
+
+      // Helper to find which new edge of a split connects to a specific node
+      auto findConnectedSplitEdge = [&](const EdgeSplitData &split,
+                                        TopoNode *node) -> TopoEdge * {
+        if (split.newEdge1->getStartNode() == node ||
+            split.newEdge1->getEndNode() == node)
+          return split.newEdge1;
+        if (split.newEdge2->getStartNode() == node ||
+            split.newEdge2->getEndNode() == node)
+          return split.newEdge2;
+        return nullptr;
+      };
+
+      // --- FACE 1 Construction ---
+      // Trace from split0.StartNode
+      TopoNode *nodeA_Start = split0.oldEdge->getStartNode();
+      TopoEdge *edgeA_Seg =
+          split0.newEdge1; // The segment connected to StartNode usually
+      // Verify geometry just in case (e.g. if newEdge1 isn't strictly
+      // start->new)
+      if (edgeA_Seg->getStartNode() != nodeA_Start &&
+          edgeA_Seg->getEndNode() != nodeA_Start) {
+        edgeA_Seg = split0.newEdge2;
+      }
+
+      TopoEdge *perp1 = findConnectedPerp(nodeA_Start);
+      if (!perp1) {
+        logFile << "  ERROR: Could not find perp edge connected to "
+                << nodeA_Start->getID() << std::endl;
+        continue;
+      }
+
+      TopoNode *nodeB_Start = (perp1->getStartNode() == nodeA_Start)
+                                  ? perp1->getEndNode()
+                                  : perp1->getStartNode();
+      TopoEdge *edgeB_Seg = findConnectedSplitEdge(split1, nodeB_Start);
+      if (!edgeB_Seg) {
+        logFile << "  ERROR: Could not find split1 edge connected to "
+                << nodeB_Start->getID() << std::endl;
+        continue;
+      }
+
+      // --- FACE 2 Construction ---
+      // Trace from split0.EndNode
+      TopoNode *nodeA_End = split0.oldEdge->getEndNode();
+      TopoEdge *edgeA_Seg2 =
+          (edgeA_Seg == split0.newEdge1) ? split0.newEdge2 : split0.newEdge1;
+
+      TopoEdge *perp2 = findConnectedPerp(nodeA_End);
+      if (!perp2) {
+        logFile << "  ERROR: Could not find perp edge connected to "
+                << nodeA_End->getID() << std::endl;
+        // cleanup face1?
+        continue;
+      }
+
+      TopoNode *nodeB_End = (perp2->getStartNode() == nodeA_End)
+                                ? perp2->getEndNode()
+                                : perp2->getStartNode();
+      TopoEdge *edgeB_Seg2 = findConnectedSplitEdge(split1, nodeB_End);
+      if (!edgeB_Seg2) {
+        logFile << "  ERROR: Could not find split1 edge connected to "
+                << nodeB_End->getID() << std::endl;
+        continue;
+      }
+
+      std::vector<TopoEdge *> face1Edges = {edgeA_Seg, connectingEdge,
+                                            edgeB_Seg, perp1};
+      std::vector<TopoEdge *> face2Edges = {edgeA_Seg2, perp2, edgeB_Seg2,
+                                            connectingEdge};
+
+      // CRITICAL FIX: Delete the old face NOW to unbind its half-edges from the
+      // perpendicular edges. If we don't do this, createFace() will fail
+      // because the edges are still "owned" by the old face. We have already
+      // extracted all necessary data (perpEdges, faceGroupMap).
+      std::vector<int> currentGroups;
+      if (faceGroupMap.count(fid)) {
+        currentGroups = faceGroupMap[fid];
+      }
+
+      logFile << "  Deleting old face " << fid
+              << " to release edge ownership..." << std::endl;
+      deleteFace(fid);
+
+      TopoFace *newFace1 = createFace(face1Edges);
+      TopoFace *newFace2 = createFace(face2Edges);
+
+      if (newFace1 && newFace2) {
+        logFile << "  Created new faces " << newFace1->getID() << " and "
+                << newFace2->getID() << std::endl;
+
+        // Preserve face groups
+        for (int groupId : currentGroups) {
+          addFaceToGroup(groupId, newFace1);
+          addFaceToGroup(groupId, newFace2);
+          logFile << "  Added new faces to group " << groupId << std::endl;
+        }
+
+        // facesToDelete.insert(fid); // No longer needed, already deleted
+      } else {
+        logFile << "  ERROR: Failed to create faces" << std::endl;
       }
     }
   }
 
-  // Phase 3: Rebuild half-edges for all affected faces
-  for (int fid : facesToRebuild) {
-    rebuildFaceHalfEdges(fid);
+  // Delete old faces
+  for (int fid : facesToDelete) {
+    logFile << "Deleting old face " << fid << std::endl;
+    deleteFace(fid);
+  }
+
+  // Phase 5: Delete all old edges
+  // CRITICAL: Ensure faces are gone first (done above).
+  for (const auto &data : splitData) {
+    logFile << "Deleting old edge " << data.oldEdgeId << std::endl;
+    // Verify edge exists before delete
+    if (getEdge(data.oldEdgeId)) {
+      deleteEdge(data.oldEdgeId);
+    } else {
+      logFile << "  Warning: Edge " << data.oldEdgeId << " already deleted?"
+              << std::endl;
+    }
   }
 
   // Phase 4: Update edge groups
   for (const auto &data : splitData) {
     for (auto &groupPair : _edgeGroups) {
       auto &group = groupPair.second;
-      auto it = std::find(group->edges.begin(), group->edges.end(), data.oldEdge);
+      auto it =
+          std::find(group->edges.begin(), group->edges.end(), data.oldEdge);
       if (it != group->edges.end()) {
         it = group->edges.erase(it);
         it = group->edges.insert(it, data.newEdge1);
@@ -771,14 +968,14 @@ TopoNode *Topology::splitEdge(int edgeId, double t) {
     }
   }
 
-  // Phase 5: Delete all old edges
-  for (const auto &data : splitData) {
-    deleteEdge(data.oldEdgeId);
-  }
-
   qDebug() << "splitEdge: Successfully split" << splitData.size() << "edges";
   qDebug() << "splitEdge: Total edges now:" << _edges.size()
            << "Total nodes now:" << _nodes.size();
+
+  logFile << "=== SPLIT COMPLETE ===" << std::endl;
+  logFile << "Total edges: " << _edges.size()
+          << ", Total nodes: " << _nodes.size() << std::endl;
+  logFile.close();
 
   // Return the new node created from the initial edge split
   return splitData.empty() ? nullptr : splitData[0].newNode;

@@ -191,8 +191,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_occView, &OccView::topologyNodeCreated,
           [this](int id, double, double, int) {
             if (m_topology) {
-              gp_Pnt p = m_occView->getTopologyNodePosition(id);
-              m_topology->createNodeWithID(id, p);
+              // CRITICAL FIX: Check if node already exists.
+              // If it does (e.g. created by splitEdge operation in the model),
+              // DO NOT overwrite its position with data from OccView, because
+              // OccView might not have the visual object yet (returning 0,0,0).
+              if (!m_topology->getNode(id)) {
+                gp_Pnt p = m_occView->getTopologyNodePosition(id);
+                m_topology->createNodeWithID(id, p);
+              }
               // Also update UI Page
               m_topologyPage->onNodeCreated(id, 0, 0,
                                             0); // params unused in UI list
@@ -254,21 +260,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   connect(m_occView, &OccView::topologyFaceCreated,
           [this](int id, const QList<int> &nodeIds) {
-            if (m_topology) {
-              std::vector<TopoEdge *> edges;
-              for (int i = 0; i < nodeIds.size(); ++i) {
-                int n1 = nodeIds[i];
-                int n2 = nodeIds[(i + 1) % nodeIds.size()];
-                TopoEdge *edge = m_topology->getEdge(n1, n2);
-                if (edge)
-                  edges.push_back(edge);
-              }
-              if (edges.size() == (size_t)nodeIds.size()) {
-                m_topology->createFaceWithID(id, edges);
-              } else {
-                qDebug() << "MainWindow: Error - partial edges for face" << id;
-              }
-            }
+            // MainWindow should NOT update the core model here.
+            // The signal comes FROM the view/model update, so the face already
+            // exists. We only need to update the UI page.
+
             m_topologyPage->onFaceCreated(id, nodeIds);
           });
 

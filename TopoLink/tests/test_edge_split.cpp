@@ -158,3 +158,78 @@ TEST(EdgeSplitTest, SubdivisionInheritance) {
     EXPECT_EQ(e->getSubdivisions(), 10);
   }
 }
+// Test edge split on an extruded face (mimicking user scenario)
+TEST(EdgeSplitTest, ExtrudedFaceSplit) {
+  Topology topo;
+
+  // 1. Create base nodes (approximate user coords from logs)
+  // Node 1: 509, 233 -> ? (User clicked 2D). Let's use 3D coords from log.
+  // Snapped p3 to 1.0, 24.0, -7.2
+  // Snapped p4 to 1.3, 24.0, 8.6
+  // Extrusion vector was roughly (0, 0, 15) ?
+  // Let's assume start nodes were at Z=0.
+
+  TopoNode *n1 = topo.createNode(gp_Pnt(1.0, 24.0, -20.0));
+  TopoNode *n2 = topo.createNode(gp_Pnt(1.3, 24.0, -20.0));
+
+  // 2. Create base edge (1-2)
+  TopoEdge *e_base = topo.createEdge(n1, n2);
+
+  // 3. Extrusion nodes (3-4)
+  TopoNode *n3 = topo.createNode(gp_Pnt(1.0, 24.0, -7.2));
+  TopoNode *n4 = topo.createNode(gp_Pnt(1.3, 24.0, 8.6));
+
+  // 4. Create edges for the face
+  // e_base is 1->2
+  // side1 is 1->3
+  // side2 is 2->4
+  // top is 3->4
+  TopoEdge *e_side1 = topo.createEdge(n1, n3);
+  TopoEdge *e_side2 = topo.createEdge(n2, n4);
+  TopoEdge *e_top = topo.createEdge(n3, n4);
+
+  // Face loop: 1->2, 2->4, 4->3, 3->1
+  // Edges: e_base, e_side2, e_top(rev), e_side1(rev)
+  // But define it simply
+  std::vector<TopoEdge *> edges = {e_base, e_side2, e_top, e_side1};
+  TopoFace *face = topo.createFace(edges);
+  ASSERT_NE(face, nullptr);
+
+  // 5. Split side edge 1 (1->3) at t=0.5
+  // Parallel edge should be side edge 2 (2->4)
+  topo.splitEdge(e_side1->getID(), 0.5);
+
+  // 6. Verify connecting edge length
+  // Original entities took IDs up to 9 (n1=1, n2=2, e=3, n3=4, n4=5, e=6, e=7,
+  // e=8, f=9). New nodes will be 10 and 11 (or higher depending on
+  // implementation). So connecting edge must connect nodes both >= 10.
+
+  int newNodesFound = 0;
+  TopoEdge *connectingEdge = nullptr;
+
+  for (const auto &[id, edge] : topo.getEdges()) {
+    int id1 = edge->getStartNode()->getID();
+    int id2 = edge->getEndNode()->getID();
+    if (id1 >= 10 && id2 >= 10) {
+      connectingEdge = edge;
+      break;
+    }
+  }
+
+  ASSERT_NE(connectingEdge, nullptr)
+      << "Connecting edge not found (looking for nodes >= 10)";
+
+  double len = connectingEdge->getStartNode()->getPosition().Distance(
+      connectingEdge->getEndNode()->getPosition());
+  std::cout << "Connecting Edge Length: " << len << std::endl;
+
+  // Additional debug info
+  gp_Pnt pA = connectingEdge->getStartNode()->getPosition();
+  gp_Pnt pB = connectingEdge->getEndNode()->getPosition();
+  std::cout << "Node A: " << pA.X() << ", " << pA.Y() << ", " << pA.Z()
+            << std::endl;
+  std::cout << "Node B: " << pB.X() << ", " << pB.Y() << ", " << pB.Z()
+            << std::endl;
+
+  EXPECT_GT(len, 1e-6);
+}

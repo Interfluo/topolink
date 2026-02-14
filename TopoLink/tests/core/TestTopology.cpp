@@ -529,3 +529,46 @@ TEST_F(TopoTest, Merge_Nodes_SharedNode_Regression) {
   TopoNode *n8 = topology.createNode(gp_Pnt(3, 3, 0));
   EXPECT_NE(n8, nullptr);
 }
+
+TEST_F(TopoTest, SplitEdge_Connectivity) {
+  // Create a Quad: (0,0)-(1,0)-(1,1)-(0,1)
+  TopoNode *n1 = topology.createNode(gp_Pnt(0, 0, 0));
+  TopoNode *n2 = topology.createNode(gp_Pnt(1, 0, 0)); // Bottom edge
+  TopoNode *n3 = topology.createNode(gp_Pnt(1, 1, 0));
+  TopoNode *n4 = topology.createNode(gp_Pnt(0, 1, 0)); // Top edge
+
+  TopoEdge *e1 = topology.createEdge(n1, n2);
+  TopoEdge *e2 = topology.createEdge(n2, n3);
+  TopoEdge *e3 = topology.createEdge(n3, n4);
+  TopoEdge *e4 = topology.createEdge(n4, n1);
+
+  TopoFace *face = topology.createFace({e1, e2, e3, e4});
+  ASSERT_NE(face, nullptr);
+
+  // Split bottom edge e1 at 0.5
+  // Should propagate to top edge e3
+  TopoNode *newNode = topology.splitEdge(e1->getID(), 0.5);
+
+  ASSERT_NE(newNode, nullptr);
+
+  // Verification
+  // Nodes: 4 original + 2 new = 6
+  EXPECT_EQ(topology.getNodes().size(), 6);
+
+  // Edges: 4 original - 2 removed + 4 new segments + 1 connecting = 7
+  EXPECT_EQ(topology.getEdges().size(), 7);
+
+  // Faces: 1 removed + 2 new = 2
+  EXPECT_EQ(topology.getFaces().size(), 2);
+
+  // Verify Faces content
+  for (const auto &pair : topology.getFaces()) {
+    TopoFace *f = pair.second;
+    EXPECT_EQ(f->getEdges().size(), 4);
+
+    // Check for null edges in face
+    for (TopoEdge *e : f->getEdges()) {
+      EXPECT_NE(e, nullptr);
+    }
+  }
+}
