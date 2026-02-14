@@ -1,24 +1,33 @@
 #include "EllipticSolver.h"
 #include <cmath>
 
-void EllipticSolver::smoothGrid(
+std::vector<double> EllipticSolver::smoothGrid(
     std::vector<std::vector<gp_Pnt>> &grid,
     const std::vector<std::vector<bool>> &isFixed, const Params &params,
     std::function<gp_Pnt(int, int, const gp_Pnt &)> constraintFunc) {
+
+  std::vector<double> convergence;
   if (grid.empty() || grid[0].empty())
-    return;
+    return convergence;
+
+  convergence.reserve(params.iterations);
 
   for (int it = 0; it < params.iterations; ++it) {
-    iterate(grid, isFixed, params.relaxation, constraintFunc);
+    double maxDist = iterate(grid, isFixed, params.relaxation, constraintFunc);
+    convergence.push_back(maxDist);
+    if (maxDist < 1e-9) // Converged
+      break;
   }
+  return convergence;
 }
 
-void EllipticSolver::iterate(
+double EllipticSolver::iterate(
     std::vector<std::vector<gp_Pnt>> &grid,
     const std::vector<std::vector<bool>> &isFixed, double omega,
     std::function<gp_Pnt(int, int, const gp_Pnt &)> constraintFunc) {
   int M = grid.size() - 1;
   int N = grid[0].size() - 1;
+  double maxDisplacement = 0.0;
 
   // Gauss-Seidel with SOR
   for (int i = 0; i <= M; ++i) {
@@ -48,8 +57,9 @@ void EllipticSolver::iterate(
       }
 
       if (count > 0) {
+        gp_Pnt oldPnt = grid[i][j];
         gp_Pnt target(sum / (double)count);
-        gp_XYZ newVal = grid[i][j].XYZ() * (1.0 - omega) + target.XYZ() * omega;
+        gp_XYZ newVal = oldPnt.XYZ() * (1.0 - omega) + target.XYZ() * omega;
         gp_Pnt newPnt(newVal);
 
         if (constraintFunc) {
@@ -57,7 +67,13 @@ void EllipticSolver::iterate(
         }
 
         grid[i][j] = newPnt;
+
+        double distSq = oldPnt.SquareDistance(newPnt);
+        if (distSq > maxDisplacement) {
+          maxDisplacement = distSq;
+        }
       }
     }
   }
+  return std::sqrt(maxDisplacement);
 }

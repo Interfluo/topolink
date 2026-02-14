@@ -904,7 +904,52 @@ void MainWindow::restoreTopologyToView() {
 }
 
 void MainWindow::onRunSolver() {
-  if (m_smootherPage) {
+  if (m_smootherPage && m_topology && m_topologyPage && m_geometryPage) {
+    // SYNC GROUPS TO CORE
+    m_topology->clearGroups();
+
+    // 1. Sync Face Groups
+    for (const auto &g : m_topologyPage->faceGroups()) {
+      QString geoIdsStr;
+      if (!g.linkedGeometryGroup.isEmpty()) {
+        const GeometryGroup *gg =
+            m_geometryPage->getFaceGroupByName(g.linkedGeometryGroup);
+        if (gg) {
+          QStringList sl;
+          for (int id : gg->ids)
+            sl << QString::number(id);
+          geoIdsStr = sl.join(",");
+        }
+      }
+      TopoFaceGroup *fg = m_topology->createFaceGroup(geoIdsStr.toStdString());
+      for (int fid : g.ids) {
+        TopoFace *f = m_topology->getFace(fid);
+        if (f)
+          m_topology->addFaceToGroup(fg->id, f);
+      }
+    }
+
+    // 2. Sync Edge Groups
+    for (const auto &g : m_topologyPage->edgeGroups()) {
+      QString geoIdsStr;
+      if (!g.linkedGeometryGroup.isEmpty()) {
+        const GeometryGroup *gg =
+            m_geometryPage->getEdgeGroupByName(g.linkedGeometryGroup);
+        if (gg) {
+          QStringList sl;
+          for (int id : gg->ids)
+            sl << QString::number(id);
+          geoIdsStr = sl.join(",");
+        }
+      }
+      TopoEdgeGroup *eg = m_topology->createEdgeGroup(geoIdsStr.toStdString());
+      for (int eid : g.ids) {
+        TopoEdge *e = m_topology->getEdge(eid);
+        if (e)
+          m_topology->addEdgeToGroup(eg->id, e);
+      }
+    }
+
     logMessage("Running elliptic grid smoother...");
     m_occView->runEllipticSolver(m_smootherPage->getConfig());
     logMessage("Smoothing complete.");

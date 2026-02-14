@@ -268,6 +268,34 @@ bool Topology::mergeNodes(int keepId, int removeId) {
       TopoEdge *keeper = seenEdgesMap[normalizedPair];
       TopoEdge *duplicate = edge;
 
+      // Transfer group membership from duplicate to keeper
+      for (auto &groupPair : _edgeGroups) {
+        auto &group = groupPair.second;
+        auto &edges = group->edges;
+        bool dupInGroup =
+            std::find(edges.begin(), edges.end(), duplicate) != edges.end();
+        if (dupInGroup) {
+          // Add keeper if not present
+          if (std::find(edges.begin(), edges.end(), keeper) == edges.end()) {
+            edges.push_back(keeper);
+          }
+        }
+      }
+
+      // Transfer group membership from duplicate to keeper
+      for (auto &groupPair : _edgeGroups) {
+        auto &group = groupPair.second;
+        auto &edges = group->edges;
+        bool dupInGroup =
+            std::find(edges.begin(), edges.end(), duplicate) != edges.end();
+        if (dupInGroup) {
+          // Add keeper if not present
+          if (std::find(edges.begin(), edges.end(), keeper) == edges.end()) {
+            edges.push_back(keeper);
+          }
+        }
+      }
+
       // Replace duplicate with keeper only in faces that reference the
       // duplicate, using DCEL for O(1) lookup
       TopoHalfEdge *he1 = duplicate->getForwardHalfEdge();
@@ -719,6 +747,27 @@ TopoFaceGroup *Topology::getFaceGroup(int id) const {
     return it->second.get();
   }
   return nullptr;
+}
+
+std::string Topology::getFaceGeometryID(int faceId) const {
+  TopoFace *face = getFace(faceId);
+  if (!face)
+    return "";
+
+  for (const auto &groupPair : _faceGroups) {
+    const auto &group = groupPair.second;
+    for (TopoFace *f : group->faces) {
+      if (f == face) {
+        return group->geometryID;
+      }
+    }
+  }
+  return "";
+}
+
+void Topology::clearGroups() {
+  _edgeGroups.clear();
+  _faceGroups.clear();
 }
 
 // ---------------------------------------------------------------------------

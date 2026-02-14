@@ -88,6 +88,8 @@ public:
   void addFaceToGroup(int groupID, TopoFace *face);
   TopoEdgeGroup *getEdgeGroup(int id) const;
   TopoFaceGroup *getFaceGroup(int id) const;
+  std::string getFaceGeometryID(int faceId) const;
+  void clearGroups();
 
 private:
   int _nextId;

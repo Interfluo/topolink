@@ -24,13 +24,13 @@ public:
    * @param params Solver parameters
    * @param constraintFunc Optional function to project points back to geometry
    */
-  static void smoothGrid(
+  static std::vector<double> smoothGrid(
       std::vector<std::vector<gp_Pnt>> &grid,
       const std::vector<std::vector<bool>> &isFixed, const Params &params,
       std::function<gp_Pnt(int, int, const gp_Pnt &)> constraintFunc = nullptr);
 
 private:
-  static void
+  static double
   iterate(std::vector<std::vector<gp_Pnt>> &grid,
           const std::vector<std::vector<bool>> &isFixed, double omega,
           std::function<gp_Pnt(int, int, const gp_Pnt &)> constraintFunc);

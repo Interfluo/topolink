@@ -270,6 +270,7 @@ private:
 
   // Face Extrusion via Edge Pull
   QPair<int, int> m_selectedEdge = qMakePair(-1, -1);
+  QPair<int, int> m_extrudeEdge = qMakePair(-1, -1); // Dedicated storage
   bool m_isExtrudingFace = false;
   QList<Handle(AIS_InteractiveObject)> m_facePreviewShapes;
 
