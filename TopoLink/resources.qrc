@@ -1,5 +1,11 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
     <file>resources/MeshingApp.png</file>
+    <file>resources/hud/geometry.png</file>
+    <file>resources/hud/topology.png</file>
+    <file>resources/hud/smoother.png</file>
+    <file>resources/hud/node.png</file>
+    <file>resources/hud/edge.png</file>
+    <file>resources/hud/face.png</file>
 </qresource>
 </RCC>

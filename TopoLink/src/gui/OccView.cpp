@@ -550,9 +550,8 @@ void OccView::resizeEvent(QResizeEvent *event) {
   }
 
   if (m_hudWidget) {
-    // Positioning the HUD at the top-left of the view
-    QPoint globalPos = mapToGlobal(QPoint(10, 10));
-    m_hudWidget->move(globalPos);
+    // Positioning the HUD at the top-left of the view, fixed 15px offset
+    m_hudWidget->move(15, 15);
     m_hudWidget->raise();
   }
 }
@@ -1828,59 +1827,89 @@ void OccView::createHUD() {
   if (m_hudWidget)
     return;
 
-  m_hudWidget = new QWidget(this, Qt::SubWindow | Qt::FramelessWindowHint);
+  // Create HUD as a standard child widget (no SubWindow flag)
+  m_hudWidget = new QWidget(this);
   m_hudWidget->setAttribute(Qt::WA_TranslucentBackground);
-  m_hudWidget->setStyleSheet("background: transparent;");
+  m_hudWidget->setObjectName("hudWidget");
+
+  // Modern Glassmorphism Styling
+  m_hudWidget->setStyleSheet(
+      "QWidget#hudWidget { "
+      "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(45, "
+      "45, 48, 220), stop:1 rgba(30, 30, 33, 230)); "
+      "  border: 1px solid rgba(255, 255, 255, 40); "
+      "  border-radius: 12px; "
+      "} "
+      "QLabel { color: #aaaaaa; font-size: 10px; font-weight: bold; "
+      "text-transform: uppercase; margin-bottom: 2px; }");
 
   QVBoxLayout *mainLayout = new QVBoxLayout(m_hudWidget);
-  mainLayout->setContentsMargins(10, 10, 10, 10);
-  mainLayout->setSpacing(5);
+  mainLayout->setContentsMargins(12, 12, 12, 12);
+  mainLayout->setSpacing(8);
 
-  auto createButton = [](const QString &text, const QString &tooltip) {
-    QPushButton *btn = new QPushButton(text);
+  auto createButton = [](const QString &iconPath, const QString &tooltip) {
+    QPushButton *btn = new QPushButton();
+    btn->setIcon(QIcon(iconPath));
+    btn->setIconSize(QSize(24, 24));
     btn->setFixedSize(40, 40);
     btn->setCheckable(true);
     btn->setToolTip(tooltip);
     btn->setFocusPolicy(Qt::NoFocus);
-    btn->setStyleSheet(
-        "QPushButton { background: rgba(50, 50, 50, 180); color: white; "
-        "border: 1px solid rgba(100, 100, 100, 150); border-radius: 4px; "
-        "font-weight: bold; font-size: 14px; }"
-        "QPushButton:checked { background: rgba(0, 120, 215, 200); border: 2px "
-        "solid white; }"
-        "QPushButton:hover { background: rgba(80, 80, 80, 200); }"
-        "QPushButton:disabled { background: rgba(30, 30, 30, 100); color: "
-        "rgba(100, 100, 100, 100); }");
+    btn->setStyleSheet("QPushButton { "
+                       "  background: rgba(255, 255, 255, 15); "
+                       "  color: #eeeeee; "
+                       "  border: 1px solid rgba(255, 255, 255, 25); "
+                       "  border-radius: 8px; "
+                       "} "
+                       "QPushButton:hover { "
+                       "  background: rgba(255, 255, 255, 30); "
+                       "  border-color: rgba(255, 255, 255, 80); "
+                       "} "
+                       "QPushButton:checked { "
+                       "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                       "stop:0 #0078d7, stop:1 #005a9e); "
+                       "  border: 1px solid rgba(255, 255, 255, 120); "
+                       "} "
+                       "QPushButton:disabled { "
+                       "  background: rgba(255, 255, 255, 5); "
+                       "  color: rgba(255, 255, 255, 40); "
+                       "  border-color: transparent; "
+                       "}");
     return btn;
   };
 
-  // Row 1: Workbench Selector
+  // Row 1 Section: Workbench
+  QLabel *lblWorkbench = new QLabel("Workbench (R-T-Y)");
+  mainLayout->addWidget(lblWorkbench);
+
   QHBoxLayout *row1 = new QHBoxLayout();
-  row1->setSpacing(5);
-  m_btnF1 = createButton("R", "R: Geometry");
-  m_btnF2 = createButton("T", "T: Topology");
-  m_btnF3 = createButton("Y", "Y: Smoother");
+  row1->setSpacing(8);
+  m_btnF1 =
+      createButton(":/resources/hud/geometry.png", "R: Geometry (Workbench)");
+  m_btnF2 =
+      createButton(":/resources/hud/topology.png", "T: Topology (Workbench)");
+  m_btnF3 =
+      createButton(":/resources/hud/smoother.png", "Y: Smoother (Workbench)");
   row1->addWidget(m_btnF1);
   row1->addWidget(m_btnF2);
   row1->addWidget(m_btnF3);
   row1->addStretch();
   mainLayout->addLayout(row1);
 
-  // Row 2: Selection Mode
+  // Row 2 Section: Selection
+  QLabel *lblSelection = new QLabel("Selection Mode (Q-W-E)");
+  mainLayout->addWidget(lblSelection);
+
   QHBoxLayout *row2 = new QHBoxLayout();
-  row2->setSpacing(5);
-  m_btnQ = createButton("Q", "Q: Node Toggle");
-  m_btnW = createButton("W", "W: Edge Toggle");
-  m_btnE = createButton("E", "E: Face Toggle");
+  row2->setSpacing(8);
+  m_btnQ = createButton(":/resources/hud/node.png", "Q: Node Selection");
+  m_btnW = createButton(":/resources/hud/edge.png", "W: Edge Selection");
+  m_btnE = createButton(":/resources/hud/face.png", "E: Face Selection");
   row2->addWidget(m_btnQ);
   row2->addWidget(m_btnW);
   row2->addWidget(m_btnE);
   row2->addStretch();
   mainLayout->addLayout(row2);
-
-  // Optional: Keep old Selection Combo for Geometry mode if needed,
-  // but spec says Row 2 is for selection mode.
-  // For now I'll hide the old combo or integrate it.
 
   connect(m_btnF1, &QPushButton::clicked,
           [this]() { emit workbenchRequested(0); });
@@ -1919,7 +1948,8 @@ void OccView::createHUD() {
 
   updateHUDStates();
 
-  m_hudWidget->setGeometry(10, 10, 200, 100);
+  m_hudWidget->adjustSize();
+  m_hudWidget->move(15, 15);
   m_hudWidget->show();
   m_hudWidget->raise();
 }
