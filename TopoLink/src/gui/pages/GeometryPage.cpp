@@ -139,6 +139,20 @@ void GeometryPage::onDeleteFaceGroup() {
   }
 }
 
+void GeometryPage::onHighlightGroup(const QModelIndex &index) {
+  if (!index.isValid() || index.column() != GroupTableModel::ColHighlight)
+    return;
+
+  QTableView *table = qobject_cast<QTableView *>(sender());
+  GroupTableModel *model = (table == m_edgeTable) ? m_edgeModel : m_faceModel;
+
+  const GeometryGroup &group = model->groups().at(index.row());
+  if (table == m_edgeTable)
+    emit edgeGroupHighlightRequested(group.ids);
+  else
+    emit faceGroupHighlightRequested(group.ids);
+}
+
 void GeometryPage::onUpdateViewer() { emit updateViewerRequested(); }
 
 void GeometryPage::onExportCsv() {
@@ -270,26 +284,42 @@ QGroupBox *GeometryPage::createGroupSection(const QString &title,
   buttonRow->addStretch();
   layout->addLayout(buttonRow);
 
-  // Assign delete button internal tracking if needed, or connect signal here.
-  // In original code, we stored m_delEdgeBtn etc.
-  if (title.contains("Edge"))
+  // Assign buttons internal tracking
+  if (title.contains("Edge")) {
     m_delEdgeBtn = delButton;
-  else
+  } else {
     m_delFaceBtn = delButton;
+  }
 
   QTableView *table = new QTableView();
   table->setModel(model);
-  table->setItemDelegateForColumn(2, new ColorDelegate(table));
-  table->setItemDelegateForColumn(3, new RenderModeDelegate(table));
-  table->horizontalHeader()->setStretchLastSection(true);
-  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-  table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-  table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-  table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
-  table->setColumnWidth(2, 70);
-  table->setColumnWidth(3, 80);
+  table->setItemDelegateForColumn(GroupTableModel::ColColor,
+                                  new ColorDelegate(table));
+  table->setItemDelegateForColumn(GroupTableModel::ColRenderMode,
+                                  new RenderModeDelegate(table));
+  table->setItemDelegateForColumn(GroupTableModel::ColHighlight,
+                                  new HighlightButtonDelegate(table));
+
+  table->horizontalHeader()->setStretchLastSection(false);
+  table->horizontalHeader()->setSectionResizeMode(GroupTableModel::ColName,
+                                                  QHeaderView::Stretch);
+  table->horizontalHeader()->setSectionResizeMode(GroupTableModel::ColIDs,
+                                                  QHeaderView::Stretch);
+  table->horizontalHeader()->setSectionResizeMode(GroupTableModel::ColColor,
+                                                  QHeaderView::Fixed);
+  table->horizontalHeader()->setSectionResizeMode(
+      GroupTableModel::ColRenderMode, QHeaderView::Fixed);
+  table->horizontalHeader()->setSectionResizeMode(GroupTableModel::ColHighlight,
+                                                  QHeaderView::Fixed);
+
+  table->setColumnWidth(GroupTableModel::ColColor, 60);
+  table->setColumnWidth(GroupTableModel::ColRenderMode, 80);
+  table->setColumnWidth(GroupTableModel::ColHighlight, 85);
+
   table->setMinimumHeight(120);
   table->setSelectionBehavior(QAbstractItemView::SelectRows);
+
+  connect(table, &QTableView::clicked, this, &GeometryPage::onHighlightGroup);
   layout->addWidget(table);
 
   tableRef = table;

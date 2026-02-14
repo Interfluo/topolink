@@ -141,6 +141,12 @@ public:
   void setTopologyEdgeGroupAppearance(const QList<int> &ids,
                                       const QColor &color, int renderMode);
 
+  // Group Highlighting
+  void highlightGeometryFaceGroup(const QList<int> &ids);
+  void highlightGeometryEdgeGroup(const QList<int> &ids);
+  void highlightTopologyFaceGroup(const QList<int> &ids);
+  void highlightTopologyEdgeGroup(const QList<int> &ids);
+
   // Constraints
   enum ConstraintType {
     ConstraintNone,

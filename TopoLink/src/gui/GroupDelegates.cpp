@@ -1,6 +1,8 @@
 #include "GroupDelegates.h"
+#include <QApplication>
 #include <QComboBox>
 #include <QPainter>
+#include <QStyleOptionButton>
 
 // ============================================================================
 // ColorDelegate
@@ -99,4 +101,35 @@ void RenderModeDelegate::setModelData(QWidget *editor,
     return;
   int mode = combo->currentData().toInt();
   model->setData(index, mode, Qt::EditRole);
+}
+
+// ============================================================================
+// HighlightButtonDelegate
+// ============================================================================
+HighlightButtonDelegate::HighlightButtonDelegate(QObject *parent)
+    : QStyledItemDelegate(parent) {}
+
+void HighlightButtonDelegate::paint(QPainter *painter,
+                                    const QStyleOptionViewItem &option,
+                                    const QModelIndex &index) const {
+  QStyleOptionButton button;
+  button.rect = option.rect.adjusted(4, 2, -4, -2);
+  button.text = "Highlight";
+  button.state = QStyle::State_Enabled;
+
+  if (option.state & QStyle::State_MouseOver)
+    button.state |= QStyle::State_MouseOver;
+  if (option.state & QStyle::State_Sunken)
+    button.state |= QStyle::State_Sunken;
+
+  if (option.state & QStyle::State_Selected) {
+    painter->fillRect(option.rect, option.palette.highlight());
+  }
+
+  QApplication::style()->drawControl(QStyle::CE_PushButton, &button, painter);
+}
+
+QSize HighlightButtonDelegate::sizeHint(const QStyleOptionViewItem &option,
+                                        const QModelIndex &index) const {
+  return QSize(80, 25);
 }

@@ -43,6 +43,11 @@
 #include <Prs3d_PointAspect.hxx>
 #include <Quantity_Color.hxx>
 #include <Quantity_NameOfColor.hxx>
+#include <Select3D_SensitiveEntity.hxx>
+#include <SelectMgr_EntityOwner.hxx>
+#include <SelectMgr_Selection.hxx>
+#include <SelectMgr_SensitiveEntity.hxx>
+#include <SelectMgr_SequenceOfSelection.hxx>
 #include <StdSelect_BRepOwner.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TopExp.hxx>
@@ -53,6 +58,8 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Lin.hxx>
+
+#include <Prs3d_LineAspect.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_XYZ.hxx>
 
@@ -66,6 +73,7 @@
 #include <QPair>
 #include <QSet>
 #include <QShowEvent>
+#include <iostream>
 
 #include <cmath>
 
@@ -520,11 +528,24 @@ void OccView::init() {
   // Selected highlight
   Handle(Prs3d_Drawer) selStyle =
       m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected);
-  Quantity_Color selColor(m_selectionColor.redF(), m_selectionColor.greenF(),
-                          m_selectionColor.blueF(), Quantity_TOC_RGB);
-  selStyle->SetColor(selColor);
-  selStyle->SetTransparency(0.0f);
+
+  // Use solid color method (overlay)
+  selStyle->SetMethod(Aspect_TOHM_COLOR);
+  selStyle->SetColor(Quantity_NOC_YELLOW);
   selStyle->SetDisplayMode(1); // Shaded
+  selStyle->SetZLayer(Graphic3d_ZLayerId_Topmost);
+  selStyle->SetTransparency(0.2f);
+
+  // Use same style for Local Selection (sub-shapes)
+  Handle(Prs3d_Drawer) localSelStyle =
+      m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected);
+  if (!localSelStyle.IsNull()) {
+    localSelStyle->SetMethod(Aspect_TOHM_COLOR);
+    localSelStyle->SetColor(Quantity_NOC_YELLOW);
+    localSelStyle->SetDisplayMode(1); // Shaded
+    localSelStyle->SetZLayer(Graphic3d_ZLayerId_Topmost);
+    localSelStyle->SetTransparency(0.2f);
+  }
 
   // Optional: Set display mode to Shaded (1) instead of Wireframe (0)
   m_context->SetDisplayMode(AIS_Shaded, Standard_True);
@@ -2649,24 +2670,142 @@ void OccView::setFaceGroupAppearance(const QList<int> &ids, const QColor &color,
 
     TopoDS_Shape face = m_faceMap->FindKey(id);
 
-    // Apply color based on render mode
+    // Always set the color first
+    m_aisShape->SetCustomColor(face, occColor);
+
+    // Apply transparency based on renderMode
     switch (renderMode) {
     case 0: // Shaded
-      m_aisShape->SetCustomColor(face, occColor);
       m_aisShape->SetCustomTransparency(face, 0.0);
       break;
     case 1: // Translucent
-      m_aisShape->SetCustomColor(face, occColor);
-      m_aisShape->SetCustomTransparency(face, 0.5);
+      m_aisShape->SetCustomTransparency(face,
+                                        0.6); // Slightly more opaque than 0.5
       break;
-    case 2: // Hidden
-      m_aisShape->SetCustomTransparency(face, 1.0);
+    case 2:                                         // Hidden
+      m_aisShape->SetCustomTransparency(face, 1.0); // Fully transparent
       break;
     }
   }
 
-  // Update the display
   m_context->Redisplay(m_aisShape, Standard_True);
+}
+
+// Helper to select sub-shapes
+static void SelectSubShapes(const Handle(AIS_InteractiveContext) & ctx,
+                            const Handle(AIS_InteractiveObject) & aisObj,
+                            const QList<TopoDS_Shape> &shapesToSelect,
+                            int mode) {
+  if (ctx.IsNull() || aisObj.IsNull())
+    return;
+
+  // 1. Ensure the mode is active so owners exist
+  ctx->Activate(aisObj, mode);
+
+  // 2. Iterate over selections to find the one matching 'mode'
+  Handle(SelectMgr_Selection) selection;
+  const SelectMgr_SequenceOfSelection &selections = aisObj->Selections();
+  for (int i = 1; i <= selections.Length(); ++i) {
+    const Handle(SelectMgr_Selection) &sel = selections.Value(i);
+    if (sel->Mode() == mode) {
+      selection = sel;
+      break;
+    }
+  }
+
+  if (selection.IsNull())
+    return;
+
+  // 3. Collect matching owners
+  for (NCollection_Vector<Handle(SelectMgr_SensitiveEntity)>::Iterator it(
+           selection->Entities());
+       it.More(); it.Next()) {
+    const Handle(SelectMgr_SensitiveEntity) &sens = it.Value();
+    if (sens.IsNull() || sens->BaseSensitive().IsNull())
+      continue;
+
+    Handle(SelectMgr_EntityOwner) owner = sens->BaseSensitive()->OwnerId();
+    Handle(StdSelect_BRepOwner) brepOwner =
+        Handle(StdSelect_BRepOwner)::DownCast(owner);
+
+    if (!brepOwner.IsNull() && brepOwner->HasShape()) {
+      const TopoDS_Shape &ownerShape = brepOwner->Shape();
+      for (const TopoDS_Shape &target : shapesToSelect) {
+        if (ownerShape.IsSame(target)) {
+          ctx->AddOrRemoveSelected(owner, Standard_False);
+          break;
+        }
+      }
+    }
+  }
+}
+
+void OccView::highlightGeometryFaceGroup(const QList<int> &ids) {
+  if (m_context.IsNull() || m_aisShape.IsNull() || m_faceMap->IsEmpty())
+    return;
+
+  m_context->ClearSelected(Standard_False);
+
+  QList<TopoDS_Shape> shapes;
+  for (int id : ids) {
+    if (id >= 1 && id <= m_faceMap->Extent())
+      shapes.append(m_faceMap->FindKey(id));
+  }
+
+  SelectSubShapes(m_context, m_aisShape, shapes, 4); // 4 = Face
+  m_context->UpdateCurrentViewer();
+  qDebug() << "Geometry Face Group Highlight: Requested" << ids.size()
+           << "Available" << shapes.size() << "Selected"
+           << m_context->NbSelected();
+}
+
+void OccView::highlightGeometryEdgeGroup(const QList<int> &ids) {
+  if (m_context.IsNull() || m_aisShape.IsNull() || m_edgeMap->IsEmpty())
+    return;
+
+  m_context->ClearSelected(Standard_False);
+
+  QList<TopoDS_Shape> shapes;
+  for (int id : ids) {
+    if (id >= 1 && id <= m_edgeMap->Extent())
+      shapes.append(m_edgeMap->FindKey(id));
+  }
+
+  SelectSubShapes(m_context, m_aisShape, shapes, 2); // 2 = Edge
+  m_context->UpdateCurrentViewer();
+  qDebug() << "Geometry Edge Group Highlight: Requested" << ids.size()
+           << "Available" << shapes.size() << "Selected"
+           << m_context->NbSelected();
+}
+
+void OccView::highlightTopologyFaceGroup(const QList<int> &ids) {
+  if (m_context.IsNull())
+    return;
+
+  m_context->ClearSelected(Standard_False);
+  for (int id : ids) {
+    if (m_topologyFaces.contains(id)) {
+      m_context->AddOrRemoveSelected(m_topologyFaces[id], Standard_False);
+    }
+  }
+  m_context->UpdateCurrentViewer();
+}
+
+void OccView::highlightTopologyEdgeGroup(const QList<int> &ids) {
+  if (m_context.IsNull())
+    return;
+
+  m_context->ClearSelected(Standard_False);
+  for (int id : ids) {
+    for (auto it = m_topologyEdges.begin(); it != m_topologyEdges.end(); ++it) {
+      int edgeId = m_nodePairToEdgeIdMap.value(it.key(), -1);
+      if (edgeId == id) {
+        m_context->AddOrRemoveSelected(it.value(), Standard_False);
+        break;
+      }
+    }
+  }
+  m_context->UpdateCurrentViewer();
 }
 
 void OccView::loadConfig() {

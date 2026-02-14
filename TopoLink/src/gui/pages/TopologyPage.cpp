@@ -216,11 +216,11 @@ TopologyPage::createGroupSection(const QString &title,
   buttonRow->addStretch();
   layout->addLayout(buttonRow);
 
-  // Store delete button reference
-  if (title.contains("Edge"))
+  if (title.contains("Edge")) {
     m_delEdgeGroupBtn = delButton;
-  else
+  } else {
     m_delFaceGroupBtn = delButton;
+  }
 
   QTableView *table = new QTableView();
   table->setModel(model);
@@ -230,7 +230,10 @@ TopologyPage::createGroupSection(const QString &title,
                                   new ColorDelegate(table));
   table->setItemDelegateForColumn(TopologyGroupTableModel::ColMode,
                                   new RenderModeDelegate(table));
-  table->horizontalHeader()->setStretchLastSection(true);
+  table->setItemDelegateForColumn(TopologyGroupTableModel::ColHighlight,
+                                  new HighlightButtonDelegate(table));
+
+  table->horizontalHeader()->setStretchLastSection(false);
   table->horizontalHeader()->setSectionResizeMode(
       TopologyGroupTableModel::ColName, QHeaderView::Stretch);
   table->horizontalHeader()->setSectionResizeMode(
@@ -241,10 +244,17 @@ TopologyPage::createGroupSection(const QString &title,
       TopologyGroupTableModel::ColColor, QHeaderView::Fixed);
   table->horizontalHeader()->setSectionResizeMode(
       TopologyGroupTableModel::ColMode, QHeaderView::Fixed);
-  table->setColumnWidth(TopologyGroupTableModel::ColColor, 70);
+  table->horizontalHeader()->setSectionResizeMode(
+      TopologyGroupTableModel::ColHighlight, QHeaderView::Fixed);
+
+  table->setColumnWidth(TopologyGroupTableModel::ColColor, 60);
   table->setColumnWidth(TopologyGroupTableModel::ColMode, 80);
+  table->setColumnWidth(TopologyGroupTableModel::ColHighlight, 85);
+
   table->setMinimumHeight(100);
   table->setSelectionBehavior(QAbstractItemView::SelectRows);
+
+  connect(table, &QTableView::clicked, this, &TopologyPage::onHighlightGroup);
   layout->addWidget(table);
 
   tableRef = table;
@@ -268,6 +278,22 @@ void TopologyPage::onDeleteFaceGroup() {
   QModelIndex index = m_faceGroupTable->currentIndex();
   if (index.isValid())
     m_faceGroupModel->removeGroup(index.row());
+}
+
+void TopologyPage::onHighlightGroup(const QModelIndex &index) {
+  if (!index.isValid() ||
+      index.column() != TopologyGroupTableModel::ColHighlight)
+    return;
+
+  QTableView *table = qobject_cast<QTableView *>(sender());
+  TopologyGroupTableModel *model =
+      (table == m_edgeGroupTable) ? m_edgeGroupModel : m_faceGroupModel;
+
+  const TopologyGroup &group = model->groups().at(index.row());
+  if (table == m_edgeGroupTable)
+    emit topologyEdgeGroupHighlightRequested(group.ids);
+  else
+    emit topologyFaceGroupHighlightRequested(group.ids);
 }
 
 void TopologyPage::onUpdateViewer() { emit updateViewerRequested(); }

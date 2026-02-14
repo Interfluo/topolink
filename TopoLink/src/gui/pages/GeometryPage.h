@@ -38,6 +38,15 @@ struct GeometryGroup {
 class GroupTableModel : public QAbstractTableModel {
   Q_OBJECT
 public:
+  enum Column {
+    ColName = 0,
+    ColIDs = 1,
+    ColColor = 2,
+    ColRenderMode = 3,
+    ColHighlight = 4,
+    ColCount = 5
+  };
+
   explicit GroupTableModel(QObject *parent = nullptr)
       : QAbstractTableModel(parent) {}
 
@@ -49,7 +58,7 @@ public:
   int columnCount(const QModelIndex &parent = QModelIndex()) const override {
     if (parent.isValid())
       return 0;
-    return 4; // Name, IDs, Color, RenderMode
+    return ColCount;
   }
   QVariant data(const QModelIndex &index,
                 int role = Qt::DisplayRole) const override {
@@ -59,17 +68,17 @@ public:
 
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
       switch (index.column()) {
-      case 0:
+      case ColName:
         return group.name;
-      case 1: {
+      case ColIDs: {
         QStringList idStrings;
         for (int id : group.ids)
           idStrings << QString::number(id);
         return idStrings.join(",");
       }
-      case 2:
+      case ColColor:
         return QString();
-      case 3:
+      case ColRenderMode:
         switch (group.renderMode) {
         case RenderMode::Shaded:
           return "Shaded";
@@ -78,13 +87,15 @@ public:
         case RenderMode::Hidden:
           return "Hidden";
         }
+      case ColHighlight:
+        return "Highlight";
       }
-    } else if (role == Qt::BackgroundRole && index.column() == 2) {
+    } else if (role == Qt::BackgroundRole && index.column() == ColColor) {
       return group.color;
     } else if (role == Qt::UserRole) {
-      if (index.column() == 2)
+      if (index.column() == ColColor)
         return group.color;
-      if (index.column() == 3)
+      if (index.column() == ColRenderMode)
         return static_cast<int>(group.renderMode);
     }
     return QVariant();
@@ -93,14 +104,16 @@ public:
                       int role = Qt::DisplayRole) const override {
     if (orientation == Qt::Horizontal && role == Qt::DisplayRole) {
       switch (section) {
-      case 0:
+      case ColName:
         return "Name";
-      case 1:
+      case ColIDs:
         return "IDs";
-      case 2:
+      case ColColor:
         return "Color";
-      case 3:
+      case ColRenderMode:
         return "Mode";
+      case ColHighlight:
+        return "Highlight";
       }
     }
     return QVariant();
@@ -110,7 +123,12 @@ public:
       return Qt::NoItemFlags;
 
     // For "Unused" group, the IDs column should be read-only
-    if (index.column() == 1 && m_groups[index.row()].name == "Unused") {
+    if (index.column() == ColIDs && m_groups[index.row()].name == "Unused") {
+      return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    }
+
+    // Highlight column should not be editable (it's a button)
+    if (index.column() == ColHighlight) {
       return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
     }
 
@@ -122,10 +140,10 @@ public:
       return false;
     GeometryGroup &group = m_groups[index.row()];
     switch (index.column()) {
-    case 0:
+    case ColName:
       group.name = value.toString();
       break;
-    case 1: { // IDs
+    case ColIDs: { // IDs
       QString str = value.toString();
       QStringList parts = str.split(",", Qt::SkipEmptyParts);
       QList<int> newIds;
@@ -140,11 +158,11 @@ public:
       group.ids = newIds;
       break;
     }
-    case 2:
+    case ColColor:
       if (value.canConvert<QColor>())
         group.color = value.value<QColor>();
       break;
-    case 3:
+    case ColRenderMode:
       group.renderMode = static_cast<RenderMode>(value.toInt());
       break;
     default:
@@ -294,12 +312,15 @@ public:
 
 signals:
   void updateViewerRequested();
+  void edgeGroupHighlightRequested(const QList<int> &ids);
+  void faceGroupHighlightRequested(const QList<int> &ids);
 
 private slots:
   void onAddEdgeGroup();
   void onAddFaceGroup();
   void onDeleteEdgeGroup();
   void onDeleteFaceGroup();
+  void onHighlightGroup(const QModelIndex &index);
   void onUpdateViewer();
   void onExportCsv();
   void onImportCsv();

@@ -40,6 +40,7 @@ public:
     ColLinkedGroup,
     ColColor,
     ColMode,
+    ColHighlight,
     ColCount
   };
 
@@ -85,6 +86,8 @@ public:
         case RenderMode::Hidden:
           return "Hidden";
         }
+      case ColHighlight:
+        return "Highlight";
       }
     } else if (role == Qt::BackgroundRole && index.column() == ColColor) {
       return group.color;
@@ -113,6 +116,8 @@ public:
         return "Color";
       case ColMode:
         return "Mode";
+      case ColHighlight:
+        return "Highlight";
       }
     }
     return QVariant();
@@ -124,6 +129,11 @@ public:
 
     // For "Unused" group, the IDs column should be read-only
     if (index.column() == ColIDs && m_groups[index.row()].name == "Unused") {
+      return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    }
+
+    // Highlight column should not be editable (it's a button)
+    if (index.column() == ColHighlight) {
       return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
     }
 
@@ -373,6 +383,8 @@ signals:
   void faceHighlightRequested(int faceId, bool highlight);
   void edgeHighlightRequested(int n1, int n2, bool highlight);
   void nodeHighlightRequested(int id, bool highlight);
+  void topologyEdgeGroupHighlightRequested(const QList<int> &ids);
+  void topologyFaceGroupHighlightRequested(const QList<int> &ids);
   void topologySelectionModeChanged(int mode);
 
 public slots:
@@ -384,6 +396,7 @@ private slots:
   void onAddFaceGroup();
   void onDeleteEdgeGroup();
   void onDeleteFaceGroup();
+  void onHighlightGroup(const QModelIndex &index);
   void onUpdateViewer();
   void onFaceSelectionChanged(QListWidgetItem *current,
                               QListWidgetItem *previous);

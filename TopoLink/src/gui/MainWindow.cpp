@@ -111,6 +111,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   // Connect geometry panel update signal
   connect(m_geometryPage, &GeometryPage::updateViewerRequested, this,
           &MainWindow::onUpdateGeometryGroups);
+  connect(m_geometryPage, &GeometryPage::edgeGroupHighlightRequested, m_occView,
+          &OccView::highlightGeometryEdgeGroup);
+  connect(m_geometryPage, &GeometryPage::faceGroupHighlightRequested, m_occView,
+          &OccView::highlightGeometryFaceGroup);
 
   // Connect topology panel signals
   connect(m_topologyPage, &TopologyPage::updateViewerRequested,
@@ -121,6 +125,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &OccView::highlightTopologyEdge);
   connect(m_topologyPage, &TopologyPage::nodeHighlightRequested, m_occView,
           &OccView::highlightTopologyNode);
+  connect(m_topologyPage, &TopologyPage::topologyEdgeGroupHighlightRequested,
+          m_occView, &OccView::highlightTopologyEdgeGroup);
+  connect(m_topologyPage, &TopologyPage::topologyFaceGroupHighlightRequested,
+          m_occView, &OccView::highlightTopologyFaceGroup);
   connect(m_topologyPage, &TopologyPage::topologySelectionModeChanged,
           m_occView, &OccView::setTopologySelectionMode);
 
